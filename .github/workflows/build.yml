@@ -1,0 +1,80 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            firmware/.pio
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+      - run: pip install --upgrade platformio
+
+      # The generated headers are gitignored, so this also proves the generators
+      # run from a clean checkout.
+      - name: Build all three images
+        working-directory: firmware
+        run: pio run -e ultra_slim -e ultra -e loader
+
+      # Determinism check: the generators must leave byte-identical output on a
+      # second run, or "unchanged HTML" would produce noisy diffs and rebuilds.
+      - name: Generators are deterministic
+        working-directory: firmware
+        run: |
+          sha256sum src/webui.h src/agent_install.h > /tmp/before
+          python tools/gen_webui.py
+          python tools/gen_agent.py
+          sha256sum -c /tmp/before
+
+      # The slim image exists to fit through the stock Ultra OTA slot. If it
+      # grows past this, the one-step install stops working and nobody notices
+      # until a batch run fails, so fail here instead.
+      - name: Slim image size budget
+        working-directory: firmware
+        run: |
+          size=$(stat -c%s .pio/build/ultra_slim/firmware.bin)
+          echo "slim image: $size B"
+          limit=520000
+          if [ "$size" -gt "$limit" ]; then
+            echo "::error::slim image is $size B, over the $limit B budget."
+            echo "Check that nothing new references BearSSL outside WITH_TLS."
+            exit 1
+          fi
+
+      - name: Report sizes
+        working-directory: firmware
+        run: |
+          for e in ultra_slim ultra loader; do
+            printf '%-12s %8d B\n' "$e" "$(stat -c%s .pio/build/$e/firmware.bin)"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: firmware/.pio/build/*/firmware.bin
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: firmware
+        run: |
+          cp .pio/build/ultra_slim/firmware.bin clawdmeter-ultra-slim.bin
+          cp .pio/build/ultra/firmware.bin      clawdmeter-ultra.bin
+          cp .pio/build/loader/firmware.bin     clawdmeter-loader.bin
+          gh release upload "${GITHUB_REF_NAME}" \
+            clawdmeter-ultra-slim.bin clawdmeter-ultra.bin clawdmeter-loader.bin \
+            --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

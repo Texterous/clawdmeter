@@ -1,0 +1,23 @@
+{
+  "_comment": "Settings applied to every unit in the batch, plus per-unit overrides. flash.ps1 POSTs this to /api/import, which is a partial merge, so anything omitted keeps its default and the baked WiFi row is never touched.",
+
+  "brightness": 85,
+  "autoBrightness": false,
+  "rotation": 0,
+
+  "clock": {
+    "tzPosix": "CET-1CEST,M3.5.0,M10.5.0/3",
+    "tz": "Europe/Amsterdam",
+    "nightEnabled": false
+  },
+
+  "usage": {
+    "showMascot": true
+  },
+
+  "units": {
+    "_comment": "Per-unit overrides, keyed by the -Unit argument. hostname is set automatically to clawdmeter-<Unit>; add entries here only for a unit that needs something different (a dimmer screen for a demo table, a rotated one for a shelf).",
+    "01": {},
+    "02": {}
+  }
+}

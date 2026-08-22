@@ -1,0 +1,29 @@
+# Local provisioning credentials: baked into a batch image, never committed.
+firmware/src/provision_local.h
+provision/batch.local.json
+
+# Built images. These are NOT just build output: an image built with
+# provision_local.h present has the WiFi SSID *and password* baked into it as
+# plain strings. Committing one would publish the credential. Release artefacts
+# come from CI, which builds without that header.
+dist/
+*.bin
+
+# PlatformIO
+firmware/.pio/
+.pio/
+
+# Generated at build time from web/ and assets/ (kept out so the tree has one
+# source of truth; CI regenerates them). logo.h is the exception: it is
+# committed, because rasterising the SVG needs a non-build dependency.
+firmware/src/webui.h
+firmware/src/agent_install.h
+
+# Reference copy of the upstream UI, kept only while porting
+firmware/web/webui.html.upstream
+
+# Python / editors
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

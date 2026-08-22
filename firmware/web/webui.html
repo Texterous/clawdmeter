@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawdmeter</title>
+<!--
+  Source of truth for the device web UI. Edit this, not src/webui.h — that file
+  is generated (gzipped into PROGMEM) by tools/gen_webui.py, which runs before
+  every build.
+
+  Two constraints shape everything here:
+
+  1. This page is served OFFLINE in AP mode, with no route to the internet. The
+     webfont link below is therefore async and non-blocking, and every stack
+     falls back to a face that ships with the OS. Verify changes with the device
+     in setup mode, not just on the LAN.
+  2. It lives in the flash of a 4 MB ESP8266. No framework, no build step beyond
+     gzip, and the whole file wants to stay well under 50 KB.
+
+  Design tokens are lifted from texterous.com's own CSS custom properties.
+-->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23267eff'/%3E%3Cpath d='M9 22V10l7 12 7-12v12' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Domine:wght@700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* ---- tokens: full light palette on bare :root ------------------------- */
+:root{
+  --bg:#fbfbfb; --ink:#050505; --muted:rgba(5,5,5,.68); --faint:rgba(5,5,5,.54);
+  --card:#fff; --card-2:#f5f5f5; --line:#1118271a; --line-soft:#1118270d;
+  --accent:#267eff; --accent-ink:#fff; --accent-wash:#eef4ff;
+  --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
+  --field:#fff; --field-line:#0000001f;
+  --shadow:0 4px 12px -2px #00000014,0 2px 4px -1px #0000000a;
+  --r-card:.75rem; --r-ctl:.625rem;
+  --grain:.07;
+  --serif:"Domine",Georgia,"Times New Roman",serif;
+  --sans:"Inter",-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+/* system-dark (no explicit choice stamped) */
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#121314; --ink:#fff; --muted:#ffffffa8; --faint:#ffffff80;
+    --card:#1c1e22; --card-2:#23262b; --line:#ffffff1f; --line-soft:#ffffff12;
+    --accent:#5b9dff; --accent-ink:#0b1220; --accent-wash:#1b2330;
+    --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --field:#15171a; --field-line:#ffffff26;
+    --shadow:0 4px 14px -2px #00000059,0 2px 4px -1px #0000003d;
+    --grain:.09;
+  }
+}
+/* explicit dark wins in both directions */
+:root[data-theme="dark"]{
+  --bg:#121314; --ink:#fff; --muted:#ffffffa8; --faint:#ffffff80;
+  --card:#1c1e22; --card-2:#23262b; --line:#ffffff1f; --line-soft:#ffffff12;
+  --accent:#5b9dff; --accent-ink:#0b1220; --accent-wash:#1b2330;
+  --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  --field:#15171a; --field-line:#ffffff26;
+  --shadow:0 4px 14px -2px #00000059,0 2px 4px -1px #0000003d;
+  --grain:.09;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.45;letter-spacing:-.01em;
+  -webkit-font-smoothing:antialiased;
+}
+/* the site's grain, as an inline data URI so it costs nothing after gzip */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:var(--grain);
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' seed='3300' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)' opacity='0.72'/%3E%3C/svg%3E");
+  background-size:9rem 9rem;
+}
+.wrap{position:relative;z-index:1}
+
+/* ---- header ---------------------------------------------------------- */
+header{
+  display:flex;align-items:center;gap:.7rem;padding:1rem 1.15rem .9rem;
+  border-bottom:1px solid var(--line);
+}
+.mark{width:20px;height:34px;flex:0 0 auto;color:var(--ink)}
+.brand{font-family:var(--serif);font-weight:700;font-size:1.22rem;letter-spacing:-.03em;margin:0}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}
+.hostline{margin-left:auto;font-size:.78rem;color:var(--faint);text-align:right;line-height:1.3}
+.tbtn{
+  background:none;border:1px solid var(--line);color:var(--muted);
+  width:2rem;height:2rem;border-radius:var(--r-ctl);cursor:pointer;font-size:.95rem;
+  flex:0 0 auto;display:grid;place-items:center;
+}
+.tbtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ---- nav ------------------------------------------------------------- */
+nav{
+  display:flex;gap:.15rem;padding:.5rem .6rem;overflow-x:auto;
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;
+  background:var(--bg);scrollbar-width:none;
+}
+nav::-webkit-scrollbar{display:none}
+nav button{
+  background:none;border:0;color:var(--muted);padding:.5rem .7rem;
+  border-radius:var(--r-ctl);font:inherit;font-size:.9rem;font-weight:500;
+  cursor:pointer;white-space:nowrap;
+}
+nav button:hover{color:var(--ink)}
+nav button.active{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+
+main{padding:1.15rem;max-width:44rem;margin:0 auto}
+.tab{display:none}.tab.active{display:block}
+
+/* ---- cards, eyebrows ------------------------------------------------- */
+.card{
+  background:var(--card);border:1px solid var(--line);border-top-color:var(--line);
+  border-radius:var(--r-card);padding:1.1rem;margin-bottom:1rem;box-shadow:var(--shadow);
+}
+h2.eyebrow{
+  font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 .85rem;
+}
+h3{font-family:var(--serif);font-weight:700;font-size:1.05rem;letter-spacing:-.02em;margin:0 0 .5rem}
+p.note{color:var(--muted);font-size:.86rem;margin:.5rem 0 0}
+p.note:first-child{margin-top:0}
+a{color:var(--accent)}
+
+/* ---- key/value rows -------------------------------------------------- */
+.kv{display:flex;justify-content:space-between;gap:1rem;padding:.45rem 0;border-bottom:1px solid var(--line-soft);font-size:.9rem}
+.kv:last-child{border-bottom:0}
+.kv span{color:var(--muted)}
+.kv b{font-weight:600;text-align:right;word-break:break-word;font-variant-numeric:tabular-nums}
+
+/* ---- gauges ---------------------------------------------------------- */
+.gauge{margin:.9rem 0}
+.gauge-top{display:flex;justify-content:space-between;align-items:baseline;font-size:.86rem;margin-bottom:.35rem}
+.gauge-top b{font-family:var(--serif);font-size:1.5rem;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.gauge-top span{color:var(--faint)}
+.bar{height:.5rem;background:var(--card-2);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .35s ease}
+.bar>i.warn{background:var(--warn)}.bar>i.bad{background:var(--bad)}
+
+/* ---- forms ----------------------------------------------------------- */
+label{display:block;margin:.85rem 0 .3rem;font-size:.8rem;font-weight:600;color:var(--muted)}
+label:first-child{margin-top:0}
+input[type=text],input[type=password],input[type=number],input[type=url],select,textarea{
+  width:100%;padding:.55rem .65rem;background:var(--field);color:var(--ink);
+  border:1px solid var(--field-line);border-radius:var(--r-ctl);
+  font:inherit;font-size:.92rem;
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.row{display:flex;gap:.6rem;flex-wrap:wrap}.row>*{flex:1 1 8rem;min-width:0}
+.chk{display:flex;align-items:center;gap:.55rem;margin:.7rem 0}
+.chk input{width:1.1rem;height:1.1rem;accent-color:var(--accent);flex:0 0 auto}
+.chk label{margin:0;font-weight:400;font-size:.9rem;color:var(--ink)}
+small.hint{display:block;color:var(--faint);margin-top:.3rem;font-size:.78rem;line-height:1.4}
+
+/* ---- buttons --------------------------------------------------------- */
+.btn{
+  background:var(--accent);color:var(--accent-ink);border:0;
+  padding:.6rem 1rem;border-radius:var(--r-ctl);font:inherit;font-size:.9rem;
+  font-weight:600;cursor:pointer;
+}
+.btn:hover{filter:brightness(1.06)}
+.btn:disabled{opacity:.45;cursor:default;filter:none}
+.btn.sec{background:var(--card-2);color:var(--ink);border:1px solid var(--line)}
+.btn.danger{background:var(--bad);color:#fff}
+.btns{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem}
+
+/* ---- misc ------------------------------------------------------------ */
+.net{
+  display:flex;justify-content:space-between;gap:.6rem;align-items:center;
+  padding:.55rem .65rem;border:1px solid var(--line);border-radius:var(--r-ctl);
+  margin:.35rem 0;cursor:pointer;font-size:.9rem;background:var(--card-2);
+}
+.net:hover{border-color:var(--accent)}
+.net em{color:var(--faint);font-style:normal;font-size:.8rem;font-variant-numeric:tabular-nums}
+.pill{
+  display:inline-block;padding:.15rem .5rem;border-radius:99px;font-size:.7rem;
+  font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  background:var(--accent-wash);color:var(--accent);
+}
+.pill.ok{background:color-mix(in srgb,var(--ok),transparent 86%);color:var(--ok)}
+.pill.bad{background:color-mix(in srgb,var(--bad),transparent 86%);color:var(--bad)}
+.cmd{
+  display:flex;gap:.4rem;align-items:stretch;margin:.5rem 0 0;
+}
+.cmd code{
+  flex:1;min-width:0;background:var(--field);border:1px solid var(--field-line);
+  border-radius:var(--r-ctl);padding:.5rem .6rem;font-size:.78rem;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  overflow-x:auto;white-space:pre;
+}
+.wifirow{display:flex;gap:.5rem;align-items:flex-end;margin:.5rem 0}
+.wifirow>div{flex:1;min-width:0}
+.wifirow .btn{flex:0 0 auto}
+.toast{
+  position:fixed;left:50%;bottom:1.1rem;transform:translateX(-50%) translateY(.5rem);
+  background:var(--card);color:var(--ink);border:1px solid var(--line);
+  box-shadow:var(--shadow);padding:.6rem 1rem;border-radius:var(--r-ctl);
+  font-size:.88rem;opacity:0;transition:.25s;pointer-events:none;z-index:20;max-width:90vw;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.sep{height:1px;background:var(--line);margin:1rem 0}
+progress{width:100%;height:.5rem;accent-color:var(--accent)}
+footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-size:.76rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <svg class="mark" viewBox="0 0 1174 1970" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M635.864 255L719.049 339.632C835.312 457.917 854.996 598.126 834.268 722.593C824.378 781.976 805.286 838.174 782.922 887.618C766.355 840.152 729.199 797.812 686.804 759.244C646.398 722.486 596.708 685.329 546.336 647.663L546.328 647.656C530.97 636.172 515.549 624.641 500.309 613.059C433.932 562.617 369.557 510.245 319.945 452.281C277.759 402.992 247.449 351.034 235.288 294.327L412.46 409.171C501.48 377.582 569.479 376.53 622.72 387.538C642.029 391.531 659.854 397.417 675.539 403.621L635.864 255ZM727.383 929.048L772.403 923.299C803.19 920.416 830.499 929.695 852.877 948.829C876.013 968.61 892.305 997.495 904.134 1029.63C916.092 1062.11 924.409 1100.45 930.035 1141.91C952.416 1306.84 934.291 1538.23 911.223 1700L909.015 1715.48L831.873 1487.57L827.232 1473.85L813.87 1468.29L649.28 1399.71L583.648 1241.7L624.362 1135.86L623.738 1135.62C626.591 1127.36 628.14 1118.5 628.14 1109.27C628.14 1064.7 592.013 1028.58 547.447 1028.58C502.882 1028.58 466.754 1064.7 466.754 1109.27C466.754 1120.13 468.899 1130.48 472.787 1139.94L472.185 1140.19L595.238 1436.44L600.3 1448.63L612.482 1453.71L775.892 1521.8L841.393 1715.32C530.95 1605.76 362.814 1457.26 289.356 1308.45C218.999 1165.92 237.484 1026.6 296.674 930.934C240.866 864.748 228.726 778.846 237.651 699.701C245.031 634.264 267.03 570.24 294.24 519.352C333.917 561.371 379.391 599.965 425.219 635.96C421.312 652.128 419.44 669.536 419.885 687.019C420.688 718.526 429.095 752.771 449.57 781.988C489.215 838.56 563.775 864.153 675.258 837.536C706.18 870.775 723.765 900.711 727.383 929.048ZM616.657 783.027C584.649 756.258 548.343 729.103 509.899 700.348L509.896 700.346C501.305 693.92 492.606 687.414 483.825 680.814C483.813 682.329 483.826 683.854 483.865 685.389C484.422 707.27 490.258 728.53 501.981 745.259C517.726 767.726 550.447 789.774 616.657 783.027ZM597.989 1109.27C597.989 1137.18 575.36 1159.81 547.447 1159.81C519.534 1159.81 496.906 1137.18 496.906 1109.27C496.906 1081.36 519.534 1058.73 547.447 1058.73C575.36 1058.73 597.989 1081.36 597.989 1109.27Z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M235.285 1556.22H647.825V1620.22H327.1C294.765 1600.94 264.148 1579.51 235.285 1556.22Z" clip-rule="evenodd"/></svg>
+  <span id="dot" class="dot" title="connection"></span>
+  <h1 class="brand">Clawdmeter</h1>
+  <div class="hostline"><span id="hHost">&nbsp;</span><br><span id="hVer">&nbsp;</span></div>
+  <button class="tbtn" id="themeBtn" title="Light / dark" aria-label="Toggle theme">◐</button>
+</header>
+
+<nav id="nav">
+  <button data-t="status" class="active">Status</button>
+  <button data-t="wifi">Wifi</button>
+  <button data-t="display">Display</button>
+  <button data-t="meter">Clawdmeter</button>
+  <button data-t="system">System</button>
+</nav>
+
+<main>
+
+<!-- ================= STATUS ================= -->
+<section id="status" class="tab active">
+  <div class="card">
+    <h2 class="eyebrow">Clawdmeter</h2>
+    <div id="meterLive">
+      <p class="note">Loading…</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Connection</h2>
+    <div id="kvNet"></div>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Device</h2>
+    <div id="kvDev"></div>
+  </div>
+</section>
+
+<!-- ================= WIFI ================= -->
+<section id="wifi" class="tab">
+  <div class="card">
+    <h2 class="eyebrow">Networks</h2>
+    <p class="note">The device joins the strongest saved network it can see. Up to four,
+      tried in order. Leave a password blank to keep the one already stored.</p>
+    <div id="wifiList"></div>
+    <div class="btns">
+      <button class="btn sec" id="wifiAdd">Add network</button>
+      <button class="btn sec" id="scanBtn">Scan</button>
+    </div>
+    <div id="scanOut"></div>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Identity</h2>
+    <label for="hostname">Hostname</label>
+    <input type="text" id="hostname" autocapitalize="off" spellcheck="false">
+    <small class="hint">Reachable as <code id="hostPreview">clawdmeter</code>.local on most
+      networks. Changing it reboots the device.</small>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Setup hotspot</h2>
+    <p class="note">Shown when no saved network is in range. This is how you get back in
+      after moving the device to a new place, so leaving it open is usually right.</p>
+    <div class="row">
+      <div><label for="apSsid">Name</label><input type="text" id="apSsid" autocapitalize="off" spellcheck="false"></div>
+      <div><label for="apPass">Password</label><input type="password" id="apPass" placeholder="(open)" autocomplete="new-password"></div>
+    </div>
+    <small class="hint">Eight characters minimum, or blank for an open hotspot.</small>
+  </div>
+
+  <div class="btns"><button class="btn" id="saveWifi">Save WiFi settings</button></div>
+</section>
+
+<!-- ================= DISPLAY ================= -->
+<section id="display" class="tab">
+  <div class="card">
+    <h2 class="eyebrow">Brightness</h2>
+    <label for="bright">Level — <b id="brightVal">90</b>%</label>
+    <input type="range" id="bright" min="0" max="100">
+    <div class="chk"><input type="checkbox" id="autoBright"><label for="autoBright">Follow the ambient light sensor</label></div>
+    <small class="hint">Not every unit has the sensor populated. If the screen does not
+      react to covering it, leave this off.</small>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Night dimming</h2>
+    <div class="chk"><input type="checkbox" id="nightEn"><label for="nightEn">Dim on a schedule</label></div>
+    <div class="row">
+      <div><label for="nightStart">From</label><input type="text" id="nightStart" placeholder="22:00" inputmode="numeric"></div>
+      <div><label for="nightEnd">Until</label><input type="text" id="nightEnd" placeholder="07:00" inputmode="numeric"></div>
+      <div><label for="nightLevel">Level %</label><input type="number" id="nightLevel" min="0" max="100"></div>
+    </div>
+    <label for="tzPosix">Timezone</label>
+    <input type="text" id="tzPosix" placeholder="CET-1CEST,M3.5.0,M10.5.0/3" autocapitalize="off" spellcheck="false">
+    <small class="hint">POSIX TZ rule. Amsterdam is
+      <code>CET-1CEST,M3.5.0,M10.5.0/3</code>. Night dimming stays off until the clock has
+      actually been confirmed by NTP, so a device with no time never blanks by accident.</small>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Panel</h2>
+    <label for="rotation">Orientation</label>
+    <select id="rotation">
+      <option value="0">0°</option><option value="1">90°</option>
+      <option value="2">180°</option><option value="3">270°</option>
+    </select>
+    <label for="colorOrder">Colour order</label>
+    <select id="colorOrder">
+      <option value="auto">Automatic</option><option value="rgb">RGB</option><option value="bgr">BGR</option>
+    </select>
+    <small class="hint">If red and blue look swapped, force the other one. Panels vary
+      between units of the same model.</small>
+    <div class="chk"><input type="checkbox" id="invert"><label for="invert">Invert the panel</label></div>
+    <div class="chk"><input type="checkbox" id="blInv"><label for="blInv">Backlight is active-low</label></div>
+    <small class="hint">On this board it is. Unticking it makes the screen dark at 100%.</small>
+    <div class="sep"></div>
+    <div class="row">
+      <div><label for="rGain">Red %</label><input type="number" id="rGain" min="50" max="150"></div>
+      <div><label for="gGain">Green %</label><input type="number" id="gGain" min="50" max="150"></div>
+      <div><label for="bGain">Blue %</label><input type="number" id="bGain" min="50" max="150"></div>
+    </div>
+    <small class="hint">White balance, for matching a batch of units to each other.</small>
+  </div>
+
+  <div class="btns"><button class="btn" id="saveDisplay">Save display settings</button></div>
+</section>
+
+<!-- ================= CLAWDMETER ================= -->
+<section id="meter" class="tab">
+  <div class="card">
+    <h2 class="eyebrow">Install the agent</h2>
+    <p class="note">The device does not talk to Anthropic itself. A small agent on your
+      machine reads your Claude Code usage and pushes it here. One command:</p>
+
+    <h3>Windows</h3>
+    <div class="cmd"><code id="cmdWin"></code><button class="btn sec" data-copy="cmdWin">Copy</button></div>
+
+    <h3 style="margin-top:1rem">macOS / Linux</h3>
+    <div class="cmd"><code id="cmdNix"></code><button class="btn sec" data-copy="cmdNix">Copy</button></div>
+
+    <small class="hint">These scripts are served by the device, so they work even while
+      your machine is still joined to the setup hotspot — they will tell you to rejoin
+      your normal network before downloading. Source:
+      <a id="repoLink2" href="#" target="_blank" rel="noopener">the repository</a>.</small>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Push endpoint</h2>
+    <p class="note">Anything that can POST JSON can drive the screen. No credentials
+      needed — this endpoint only writes the numbers being displayed.</p>
+    <div class="cmd"><code id="cmdPush"></code><button class="btn sec" data-copy="cmdPush">Copy</button></div>
+    <small class="hint"><code>s</code>/<code>w</code> are the 5-hour and 7-day
+      percentages, <code>sr</code>/<code>wr</code> the minutes until each resets,
+      <code>st</code> the status string.</small>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Last payload</h2>
+    <div id="lastPayload"><p class="note">Nothing received yet.</p></div>
+    <div class="btns"><button class="btn sec" id="refreshBtn">Poll now</button></div>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Options</h2>
+    <div class="chk"><input type="checkbox" id="showMascot"><label for="showMascot">Show the animated mascot</label></div>
+    <label for="usageUrl">Pull URL (optional)</label>
+    <input type="url" id="usageUrl" placeholder="http://192.168.1.10:8787/" autocapitalize="off" spellcheck="false">
+    <small class="hint">Leave empty for the normal push setup. Fill it in only if you want
+      the device to fetch instead. Must be plain <code>http://</code> — this build has no
+      TLS, which is what keeps it small enough to install on a factory-fresh unit.</small>
+    <label for="pollSec">Pull interval (seconds)</label>
+    <input type="number" id="pollSec" min="10" max="3600">
+    <div class="btns"><button class="btn" id="saveMeter">Save Clawdmeter settings</button></div>
+  </div>
+</section>
+
+<!-- ================= SYSTEM ================= -->
+<section id="system" class="tab">
+  <div class="card">
+    <h2 class="eyebrow">Firmware</h2>
+    <div class="kv"><span>Running</span><b id="sysVer">—</b></div>
+    <div id="updateBox" style="display:none">
+      <div class="btns">
+        <button class="btn sec" id="checkUpd">Check for updates</button>
+        <button class="btn" id="doUpd" style="display:none">Install</button>
+      </div>
+      <p class="note" id="updMsg"></p>
+    </div>
+    <div class="sep"></div>
+    <h3>Upload an image</h3>
+    <p class="note">Any ESP8266 image that fits: a Clawdmeter build, upstream
+      smalltv-mod, ESPHome, Tasmota, or GeekMagic's stock firmware. It is your device.</p>
+    <input type="file" id="fwFile" accept=".bin">
+    <div class="btns"><button class="btn" id="fwUp">Upload and reboot</button></div>
+    <progress id="fwProg" value="0" max="100" style="display:none"></progress>
+    <p class="note" id="fwMsg"></p>
+    <small class="hint">Two checks run before anything is written — the image has to fit,
+      and it has to look like an ESP8266 image at all. This board has no USB recovery
+      mode, so a wrong file would otherwise mean opening the case. See
+      <a id="flashDoc" href="#" target="_blank" rel="noopener">flashing something else</a>.</small>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Settings</h2>
+    <p class="note">The backup contains your WiFi passwords in clear — same trust level as
+      typing them into this page.</p>
+    <div class="btns">
+      <button class="btn sec" id="expBtn">Download backup</button>
+      <button class="btn sec" id="impBtn">Restore backup</button>
+      <input type="file" id="impFile" accept=".json" hidden>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Access</h2>
+    <div class="chk"><input type="checkbox" id="authEn"><label for="authEn">Require a password for this page</label></div>
+    <div class="row">
+      <div><label for="authUser">User</label><input type="text" id="authUser" autocapitalize="off" spellcheck="false"></div>
+      <div><label for="authPass">Password</label><input type="password" id="authPass" placeholder="(unchanged)" autocomplete="new-password"></div>
+    </div>
+    <small class="hint">Digest auth, so the password is not sent in clear over plain HTTP.
+      The usage push endpoint stays open — the agent has no way to carry credentials, and
+      it can only change what the screen shows.</small>
+    <div class="btns"><button class="btn" id="saveAuth">Save access settings</button></div>
+  </div>
+
+  <div class="card">
+    <h2 class="eyebrow">Power</h2>
+    <div class="btns">
+      <button class="btn sec" id="rebootBtn">Reboot</button>
+      <button class="btn danger" id="factoryBtn">Factory reset</button>
+    </div>
+    <small class="hint">A factory reset wipes saved settings, including WiFi, and comes
+      back up on the setup hotspot. The firmware is untouched.</small>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <span id="footVer">Clawdmeter</span> · built by
+  <a href="https://www.texterous.com/en/" target="_blank" rel="noopener">Texterous</a><br>
+  Derived from <a href="https://github.com/giovi321/smalltv-mod" target="_blank" rel="noopener">giovi321/smalltv-mod</a>
+</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let CFG = {}, ST = {};
+
+/* ---- theme: remember an explicit choice, otherwise follow the system ---- */
+(function () {
+  const saved = localStorage.getItem('cm-theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+  $('themeBtn').onclick = () => {
+    const now = document.documentElement.dataset.theme;
+    const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const next = now ? (now === 'dark' ? 'light' : 'dark') : (sysDark ? 'light' : 'dark');
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('cm-theme', next);
+  };
+})();
+
+/* ---- tabs ---- */
+$('nav').addEventListener('click', e => {
+  const b = e.target.closest('button[data-t]');
+  if (!b) return;
+  for (const x of document.querySelectorAll('nav button')) x.classList.toggle('active', x === b);
+  for (const s of document.querySelectorAll('.tab')) s.classList.toggle('active', s.id === b.dataset.t);
+  window.scrollTo(0, 0);
+});
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text().catch(() => r.status));
+  const ct = r.headers.get('content-type') || '';
+  return ct.includes('json') ? r.json() : r.text();
+}
+
+/* ---- copy buttons ---- */
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-copy]');
+  if (!b) return;
+  const text = $(b.dataset.copy).textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied');
+  } catch {
+    // Clipboard API needs a secure context, which plain-HTTP LAN is not in some
+    // browsers. Select the text instead so a manual copy is one keystroke.
+    const r = document.createRange();
+    r.selectNodeContents($(b.dataset.copy));
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+    toast('Selected — press Ctrl/Cmd+C');
+  }
+});
+
+/* ======================= STATUS ======================= */
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+function fmtAgo(s) {
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+function fmtReset(min) {
+  if (min == null) return '—';
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `${h}h ${min % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+function gauge(label, pct, resetMin) {
+  const cls = pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : '';
+  return `<div class="gauge">
+    <div class="gauge-top"><b>${pct.toFixed(0)}%</b><span>${esc(label)} · resets in ${fmtReset(resetMin)}</span></div>
+    <div class="bar"><i class="${cls}" style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>
+  </div>`;
+}
+
+function renderMeter(m) {
+  const box = $('meterLive');
+  if (!m || !m.valid) {
+    // The most-seen screen at an event, so it says what to do rather than 0%.
+    box.innerHTML = `<p class="note"><b>Waiting for the agent.</b> Nothing has been pushed
+      to this device yet. Open the Clawdmeter tab for the one-line installer.</p>`;
+    return;
+  }
+  const stale = m.ageSec > 300;
+  box.innerHTML =
+    gauge('5-hour window', m.sessionPct, m.sessionResetMin) +
+    gauge('7-day window', m.weeklyPct, m.weeklyResetMin) +
+    `<div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>
+     <div class="kv"><span>Last update</span><b>${fmtAgo(m.ageSec)}
+       ${stale ? '<span class="pill bad">stale</span>' : '<span class="pill ok">live</span>'}</b></div>`;
+}
+
+function renderStatus(s) {
+  ST = s;
+  const up = s.connected || s.mode === 'ap';
+  $('dot').className = 'dot ' + (s.connected ? 'ok' : s.mode === 'ap' ? '' : 'bad');
+  $('hHost').textContent = s.host ? s.host + '.local' : (s.ip || '');
+  $('hVer').textContent = s.version || '';
+  $('sysVer').textContent = `${s.fw} ${s.version}`;
+  $('footVer').textContent = `Clawdmeter ${s.version}`;
+
+  renderMeter(s.meter);
+
+  const ap = s.mode === 'ap';
+  $('kvNet').innerHTML = [
+    ['Mode', ap ? '<span class="pill">setup hotspot</span>' : '<span class="pill ok">connected</span>'],
+    ['Network', esc(s.ssid || '—')],
+    ['Address', esc(s.ip || '—')],
+    ['Hostname', esc((s.host || '—') + (s.host ? '.local' : ''))],
+    ['Signal', ap ? '—' : `${s.rssi} dBm`]
+  ].map(([k, v]) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  const clock = s.synced
+    ? `${esc(s.time || 'synced')}${s.nightHeld ? ' <span class="pill">night held</span>' : ''}`
+    : '<span class="pill">not synced</span>';
+  $('kvDev').innerHTML = [
+    ['Firmware', `${esc(s.fw)} ${esc(s.version)}`],
+    ['Uptime', fmtUptime(s.uptime)],
+    ['Free heap', `${s.heap} B`],
+    ['Largest block', `${s.maxblk} B`],
+    ['Clock', clock],
+    ['Last reset', esc(s.reset || '—')]
+  ].map(([k, v]) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`).join('');
+
+  if (s.updateMsg) { $('updMsg').textContent = s.updateMsg; }
+  void up;
+}
+
+/* ======================= WIFI ======================= */
+function wifiRow(ssid, passSet) {
+  const d = document.createElement('div');
+  d.className = 'wifirow';
+  d.innerHTML = `
+    <div><label>Network</label><input type="text" class="w-ssid" autocapitalize="off" spellcheck="false" value="${esc(ssid || '')}"></div>
+    <div><label>Password</label><input type="password" class="w-pass" autocomplete="new-password" placeholder="${passSet ? '(unchanged)' : ''}"></div>
+    <button class="btn sec w-del" title="Remove">×</button>`;
+  d.querySelector('.w-del').onclick = () => d.remove();
+  return d;
+}
+function renderWifi(c) {
+  const list = $('wifiList');
+  list.innerHTML = '';
+  (c.wifi || []).forEach(w => list.appendChild(wifiRow(w.ssid, w.passSet)));
+  if (!list.children.length) list.appendChild(wifiRow('', false));
+}
+$('wifiAdd').onclick = () => {
+  const list = $('wifiList');
+  if (list.children.length >= 4) return toast('Four networks is the maximum');
+  list.appendChild(wifiRow('', false));
+};
+$('scanBtn').onclick = async e => {
+  e.target.disabled = true;
+  $('scanOut').innerHTML = '<p class="note">Scanning…</p>';
+  try {
+    const nets = await api('/api/scan');
+    nets.sort((a, b) => b.rssi - a.rssi);
+    $('scanOut').innerHTML = '<div class="sep"></div>' + (nets.length
+      ? nets.map(n => `<div class="net" data-ssid="${esc(n.ssid)}">
+          <span>${esc(n.ssid || '(hidden)')}${n.enc ? '' : ' · open'}</span><em>${n.rssi} dBm</em></div>`).join('')
+      : '<p class="note">Nothing found. Try again — a scan can come back empty while the radio is busy.</p>');
+  } catch (err) { $('scanOut').innerHTML = `<p class="note">Scan failed: ${esc(err.message)}</p>`; }
+  e.target.disabled = false;
+};
+$('scanOut').addEventListener('click', e => {
+  const n = e.target.closest('.net');
+  if (!n) return;
+  // Fill the first empty row, or add one, so picking from the scan is one tap.
+  const rows = [...document.querySelectorAll('#wifiList .wifirow')];
+  let row = rows.find(r => !r.querySelector('.w-ssid').value);
+  if (!row) { $('wifiAdd').click(); row = [...document.querySelectorAll('#wifiList .wifirow')].pop(); }
+  if (!row) return;
+  row.querySelector('.w-ssid').value = n.dataset.ssid;
+  row.querySelector('.w-pass').focus();
+  toast('Filled in — add the password');
+});
+$('hostname').addEventListener('input', e => {
+  $('hostPreview').textContent = e.target.value || 'clawdmeter';
+});
+
+/* ======================= LOAD / SAVE ======================= */
+function renderConfig(c) {
+  CFG = c;
+  renderWifi(c);
+  $('hostname').value = c.hostname || '';
+  $('hostPreview').textContent = c.hostname || 'clawdmeter';
+  $('apSsid').value = c.apSsid || '';
+  $('apPass').placeholder = c.apPassSet ? '(unchanged)' : '(open)';
+
+  $('bright').value = c.brightness;
+  $('brightVal').textContent = c.brightness;
+  $('autoBright').checked = !!c.autoBrightness;
+  $('blInv').checked = !!c.backlightInverted;
+  $('rotation').value = String(c.rotation || 0);
+
+  const d = c.display || {};
+  $('colorOrder').value = d.colorOrder || 'auto';
+  $('invert').checked = !!d.invert;
+  $('rGain').value = d.rGain; $('gGain').value = d.gGain; $('bGain').value = d.bGain;
+
+  const k = c.clock || {};
+  $('nightEn').checked = !!k.nightEnabled;
+  $('nightStart').value = k.nightStart || '22:00';
+  $('nightEnd').value = k.nightEnd || '07:00';
+  $('nightLevel').value = k.nightLevel ?? 0;
+  $('tzPosix').value = k.tzPosix === 'UTC0' ? '' : (k.tzPosix || '');
+
+  const u = c.usage || {};
+  $('showMascot').checked = u.showMascot !== false;
+  $('usageUrl').value = u.usageUrl || '';
+  $('pollSec').value = u.pollSec || 30;
+
+  const a = c.auth || {};
+  $('authEn').checked = !!a.enabled;
+  $('authUser').value = a.user || 'admin';
+  $('authPass').placeholder = a.passSet ? '(unchanged)' : '';
+
+  // No TLS in the slim build, so there is no self-update to offer.
+  $('updateBox').style.display = c.selfUpdate ? '' : 'none';
+}
+
+$('bright').addEventListener('input', e => { $('brightVal').textContent = e.target.value; });
+
+// Every save posts only its own keys. The device merges partially, so the Display
+// tab cannot clobber WiFi and vice versa.
+async function save(patch, btn, okMsg) {
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = await api('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    toast(r.reboot ? 'Saved — rebooting to apply' : (okMsg || 'Saved'));
+    if (!r.reboot) setTimeout(load, 400);
+  } catch (err) { toast('Save failed: ' + err.message); }
+  btn.disabled = false; btn.textContent = prev;
+}
+
+$('saveWifi').onclick = e => {
+  const wifi = [...document.querySelectorAll('#wifiList .wifirow')].map(r => ({
+    ssid: r.querySelector('.w-ssid').value.trim(),
+    pass: r.querySelector('.w-pass').value
+  })).filter(w => w.ssid);
+  const ap = $('apPass').value;
+  const patch = { wifi, hostname: $('hostname').value.trim(), apSsid: $('apSsid').value.trim() };
+  if (ap) patch.apPass = ap;
+  save(patch, e.target);
+};
+
+$('saveDisplay').onclick = e => save({
+  brightness: +$('bright').value,
+  autoBrightness: $('autoBright').checked,
+  backlightInverted: $('blInv').checked,
+  rotation: +$('rotation').value,
+  display: {
+    colorOrder: $('colorOrder').value, invert: $('invert').checked,
+    rGain: +$('rGain').value, gGain: +$('gGain').value, bGain: +$('bGain').value
+  },
+  clock: {
+    nightEnabled: $('nightEn').checked, nightStart: $('nightStart').value,
+    nightEnd: $('nightEnd').value, nightLevel: +$('nightLevel').value,
+    tzPosix: $('tzPosix').value.trim() || 'UTC0'
+  }
+}, e.target);
+
+$('saveMeter').onclick = e => save({
+  usage: {
+    showMascot: $('showMascot').checked,
+    usageUrl: $('usageUrl').value.trim(),
+    pollSec: +$('pollSec').value
+  }
+}, e.target);
+
+$('saveAuth').onclick = e => {
+  const patch = { auth: { enabled: $('authEn').checked, user: $('authUser').value.trim() } };
+  if ($('authPass').value) patch.auth.pass = $('authPass').value;
+  if (patch.auth.enabled && !patch.auth.pass && !(CFG.auth || {}).passSet)
+    return toast('Set a password first, or it would lock you out');
+  save(patch, e.target);
+};
+
+/* ======================= CLAWDMETER TAB ======================= */
+function renderCmds() {
+  const host = location.host || 'clawdmeter.local';
+  $('cmdWin').textContent = `irm http://${host}/agent/install.ps1 | iex`;
+  $('cmdNix').textContent = `curl -fsSL http://${host}/agent/install.sh | sh`;
+  $('cmdPush').textContent =
+    `curl -X POST http://${host}/api/usage \\\n  -d '{"s":42,"sr":118,"w":63,"wr":4200,"st":"allowed","ok":true}'`;
+  const repo = ST.repo || 'https://github.com/Texterous/clawdmeter';
+  $('repoLink2').href = repo;
+  $('flashDoc').href = repo + '/blob/main/docs/flash-something-else.md';
+}
+function renderPayload(m) {
+  $('lastPayload').innerHTML = (m && m.valid)
+    ? `<div class="kv"><span>5-hour</span><b>${m.sessionPct}% · resets in ${fmtReset(m.sessionResetMin)}</b></div>
+       <div class="kv"><span>7-day</span><b>${m.weeklyPct}% · resets in ${fmtReset(m.weeklyResetMin)}</b></div>
+       <div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>
+       <div class="kv"><span>Received</span><b>${fmtAgo(m.ageSec)}</b></div>
+       <div class="kv"><span>Last fetch</span><b>${m.error ? '<span class="pill bad">error</span>' : '<span class="pill ok">ok</span>'}</b></div>`
+    : `<p class="note">Nothing received yet. Run the installer above; the agent finds the
+        device over mDNS by itself.</p>`;
+}
+$('refreshBtn').onclick = async e => {
+  e.target.disabled = true;
+  try { await api('/api/refresh', { method: 'POST' }); toast('Polling'); setTimeout(load, 800); }
+  catch (err) { toast('Failed: ' + err.message); }
+  e.target.disabled = false;
+};
+
+/* ======================= SYSTEM ======================= */
+$('checkUpd').onclick = async e => {
+  e.target.disabled = true;
+  $('updMsg').textContent = 'Checking…';
+  try {
+    const r = await api('/api/checkupdate');
+    if (!r.ok) $('updMsg').textContent = 'Check failed: ' + (r.error || 'unknown');
+    else if (r.newer) {
+      $('updMsg').textContent = `${r.latest} is available (running ${r.current}).`;
+      $('doUpd').style.display = '';
+    } else $('updMsg').textContent = `Up to date (${r.current}).`;
+  } catch (err) { $('updMsg').textContent = 'Check failed: ' + err.message; }
+  e.target.disabled = false;
+};
+$('doUpd').onclick = async e => {
+  e.target.disabled = true;
+  try {
+    await api('/api/selfupdate', { method: 'POST' });
+    $('updMsg').textContent = 'Downloading at next boot. The device reboots twice; give it a minute.';
+  } catch (err) { $('updMsg').textContent = 'Failed: ' + err.message; }
+};
+
+$('fwUp').onclick = () => {
+  const f = $('fwFile').files[0];
+  if (!f) return toast('Pick a .bin first');
+  const fd = new FormData();
+  fd.append('firmware', f, f.name);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/update');
+  $('fwProg').style.display = '';
+  $('fwMsg').textContent = `Uploading ${f.name} (${(f.size / 1024).toFixed(0)} KB)…`;
+  xhr.upload.onprogress = ev => {
+    if (ev.lengthComputable) $('fwProg').value = ev.loaded / ev.total * 100;
+  };
+  xhr.onload = () => {
+    $('fwMsg').textContent = xhr.status === 200
+      ? 'Written. Rebooting — reload this page in about 20 seconds.'
+      : `Rejected: ${xhr.responseText || xhr.status}`;
+  };
+  xhr.onerror = () => { $('fwMsg').textContent = 'Upload failed (connection lost).'; };
+  xhr.send(fd);
+};
+
+$('expBtn').onclick = () => { location.href = '/api/export'; };
+$('impBtn').onclick = () => $('impFile').click();
+$('impFile').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const text = await f.text();
+    JSON.parse(text);   // fail here rather than on the device
+    await api('/api/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
+    toast('Restored — rebooting');
+  } catch (err) { toast('Restore failed: ' + err.message); }
+  e.target.value = '';
+};
+
+$('rebootBtn').onclick = async () => {
+  if (!confirm('Reboot the device?')) return;
+  try { await api('/api/reboot', { method: 'POST' }); toast('Rebooting'); } catch {}
+};
+$('factoryBtn').onclick = async () => {
+  if (!confirm('Wipe all settings, including WiFi?\n\nThe device will come back on its setup hotspot.')) return;
+  try { await api('/api/factory', { method: 'POST' }); toast('Reset — rebooting'); } catch {}
+};
+
+/* ======================= boot ======================= */
+async function load() {
+  try {
+    const [c, s] = await Promise.all([api('/api/config'), api('/api/status')]);
+    renderConfig(c);
+    renderStatus(s);
+    renderCmds();
+    renderPayload(s.meter);
+  } catch (err) {
+    toast('Could not reach the device: ' + err.message);
+  }
+}
+async function poll() {
+  try {
+    const s = await api('/api/status');
+    renderStatus(s);
+    renderPayload(s.meter);
+  } catch {}
+}
+load();
+setInterval(poll, 5000);
+</script>
+</body>
+</html>
