@@ -161,12 +161,29 @@ static void drawMark(int top, uint8_t scale, uint16_t color) {
   }
 }
 
+// Splash geometry, kept in one place so the caption strip and the mark cannot
+// drift into each other. The mark is 88x148 px at scale 2, so it ends at y=176;
+// the caption strip starts well below that.
+#define SPLASH_MARK_TOP   28
+#define SPLASH_MARK_SCALE  2
+#define SPLASH_CAP_Y     196
+#define SPLASH_CAP_BAND_Y  190
+#define SPLASH_CAP_BAND_H   26
+
+void gfxSplashCaption(const char* caption) {
+  if (!gfx) return;
+  // Clear only the strip under the mark. A fillScreen here would wipe the mark
+  // and reintroduce the flicker this exists to avoid.
+  gfx->fillRect(0, SPLASH_CAP_BAND_Y, TFT_WIDTH, SPLASH_CAP_BAND_H, C_BLACK);
+  if (caption && caption[0])
+    gfxDrawCentered(caption, SPLASH_CAP_Y, gfxFitSize(caption, 232, 2), C_GRAY);
+}
+
 void gfxSplash(const char* caption) {
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
-  drawMark(28, 2, C_WHITE);                       // 88x148 px, centred
-  if (caption && caption[0])
-    gfxDrawCentered(caption, 196, gfxFitSize(caption, 232, 2), C_GRAY);
+  drawMark(SPLASH_MARK_TOP, SPLASH_MARK_SCALE, C_WHITE);
+  gfxSplashCaption(caption);
 }
 
 void gfxBoot(const char* line1, const char* line2) {

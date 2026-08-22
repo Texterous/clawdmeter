@@ -47,6 +47,13 @@
 #ifndef DEVICE_LABEL
 #define DEVICE_LABEL "Texterous"
 #endif
+
+// Minimum time the brand mark stays on screen at boot. It is a MINIMUM, not a
+// delay: WiFi association happens underneath it and counts toward the total, so
+// on a normal boot this costs nothing and only pads out a fast connect.
+#ifndef SPLASH_MIN_MS
+#define SPLASH_MIN_MS 3000UL
+#endif
 #define AGENT_URL   "https://github.com/Texterous/clawdmeter"
 
 // ---------------------------------------------------------------------------

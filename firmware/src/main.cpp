@@ -75,8 +75,13 @@ void appInvalidate() {
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->invalidate(g_settings);
 }
 
+static uint32_t g_splashAt = 0;   // when the brand mark first went up
+
+// Boot progress. Repaints only the caption strip so the mark stays put for the
+// whole boot; gfxBoot here would fillScreen and wipe it on the first call.
 static void bootProgress(const char* msg) {
-  gfxBoot(DEVICE_LABEL, msg);
+  if (g_safeMode) gfxBoot("Crashed", msg);
+  else            gfxSplashCaption(msg);
 }
 
 void setup() {
@@ -109,8 +114,12 @@ void setup() {
 
   Serial.println("[boot] display");
   gfxBegin(g_settings);
-  if (g_safeMode) gfxBoot("Crashed", FW_VERSION);
-  else            gfxSplash(DEVICE_LABEL " " FW_VERSION);
+  if (g_safeMode) {
+    gfxBoot("Crashed", FW_VERSION);
+  } else {
+    gfxSplash(DEVICE_LABEL " " FW_VERSION);
+    g_splashAt = millis();
+  }
 
   Serial.println("[boot] net");
   netBegin(g_settings, bootProgress);
@@ -139,6 +148,12 @@ void setup() {
   Serial.println("[boot] meter");
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->begin(g_settings);
   Serial.println("[boot] done");
+
+  // Let the mark finish its minimum time on screen before anything replaces it.
+  if (g_splashAt) {
+    uint32_t shown = millis() - g_splashAt;
+    if (shown < SPLASH_MIN_MS) delay(SPLASH_MIN_MS - shown);
+  }
 
   if (netMode() == NET_AP) {
     gfxApInfo(g_settings.apSsid.c_str(), g_settings.apPass.c_str(), netIP().c_str());

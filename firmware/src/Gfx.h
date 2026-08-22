@@ -44,10 +44,13 @@ void    gfxDrawCentered(const char* s, int y, uint8_t size, uint16_t color);
 uint8_t gfxFitSize(const char* s, int maxW, uint8_t maxSize);
 
 // ---- Shared boot / status / diagnostic screens ----------------------------
-// Brand splash: the Texterous mark (src/splash/logo.h) over a caption. Used for
-// the first paint at boot; gfxBoot is the plain text version for progress lines
-// that come after, where redrawing the mark every step would just flicker.
+// Brand splash: the Texterous mark (src/splash/logo.h) over a caption. This is
+// the first paint at boot and it stays up for the whole of it — every boot
+// progress line goes through gfxSplashCaption, which repaints ONLY the caption
+// strip and leaves the mark alone. Calling gfxBoot during boot instead would
+// fillScreen and wipe the mark after a few milliseconds.
 void gfxSplash(const char* caption);
+void gfxSplashCaption(const char* caption);
 void gfxBoot(const char* line1, const char* line2);
 void gfxApInfo(const char* ssid, const char* pass, const char* ip);
 void gfxStaInfo(const char* ssid, const char* ip, const char* host);
