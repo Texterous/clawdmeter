@@ -14,7 +14,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "clawdmeter"
-#define FW_VERSION  "0.1.0"
+#define FW_VERSION  "0.2.1"
 
 #define REPO_URL    "https://github.com/Texterous/clawdmeter"
 #define REPO_OWNER  "Texterous"
@@ -90,6 +90,26 @@
 #define MAX_URL_LEN     200
 
 // ---------------------------------------------------------------------------
+// Network timing (Net.cpp)
+// ---------------------------------------------------------------------------
+// Per-candidate association budget at boot. A network the scan just saw gets the
+// long window; one it did not (hidden SSID, or out of range) gets the short one.
+#define WIFI_JOIN_SEEN_MS     15000UL
+#define WIFI_JOIN_UNSEEN_MS    8000UL
+
+// The AP is a waiting room: with nobody connected to the captive portal, retry
+// the saved networks this often rather than sitting there until someone
+// power-cycles the unit. The retry costs a scan plus one association attempt per
+// visible network, so keep it well above that.
+#define AP_RETRY_MS          120000UL
+
+// While the station is down: how often to nudge the current network, and how
+// long to stay down before trying the next saved one. The nudge is a full
+// disconnect/connect, so it has to be slower than an association can complete.
+#define STA_NUDGE_MS          30000UL
+#define STA_ROTATE_MS         90000UL
+
+// ---------------------------------------------------------------------------
 // Web UI password. Off by default — the page is open on the LAN, as upstream
 // has it. Digest auth, so the password never crosses the wire in clear.
 // ---------------------------------------------------------------------------
@@ -99,11 +119,18 @@
 #define AUTH_REALM        "Clawdmeter"
 
 // ---------------------------------------------------------------------------
-// Display mode. There is exactly one, but the DisplayMode registry in Mode.h is
-// kept so a second screen can be added later without restructuring main.cpp.
+// Display modes. Registered in main.cpp's kModes[]; settings.mode picks one.
+//   usage    — the 5h/7d meters and the mascot
+//   sessions — the session board: what every live Claude session is doing
 // ---------------------------------------------------------------------------
-#define MODE_USAGE   1
-#define DEFAULT_MODE MODE_USAGE
+#define MODE_USAGE    1
+#define MODE_SESSIONS 2
+#define DEFAULT_MODE  MODE_USAGE
+
+// Session board. The daemon caps `sess` at six rows to match what fits on the
+// panel; MAX_SESSION_ROWS is the array that receives them.
+#define MAX_SESSION_ROWS   6
+#define SESSION_NAME_LEN  12   // 12 chars at text size 2 = 144 px, the row width
 
 // Once usage stops arriving for this long (laptop asleep, agent stopped,
 // network down) the screen leaves the stats for the idle mascot animation.
@@ -135,6 +162,8 @@
 // ---------------------------------------------------------------------------
 // Defaults (first boot / factory reset)
 // ---------------------------------------------------------------------------
+// Both of these get the device's chip suffix appended (Settings::setDefaults),
+// so a batch of units never puts identical names in the air.
 #define DEFAULT_AP_SSID      "Clawdmeter-Setup"
 #define DEFAULT_AP_PASS      ""              // empty => open AP
 #define DEFAULT_HOSTNAME     "clawdmeter"

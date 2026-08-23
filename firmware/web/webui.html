@@ -374,6 +374,14 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 
   <div class="card">
     <h2 class="eyebrow">Options</h2>
+    <label for="mode">Screen</label>
+    <select id="mode">
+      <option value="usage">Usage meters</option>
+      <option value="sessions">Session board</option>
+    </select>
+    <small class="hint">The session board lists every Claude session running on your
+      machine and what each one is doing — working, waiting for you, or stuck on a
+      permission prompt. It needs a daemon new enough to send them.</small>
     <div class="chk"><input type="checkbox" id="showMascot"><label for="showMascot">Show the animated mascot</label></div>
     <label for="usageUrl">Pull URL (optional)</label>
     <input type="url" id="usageUrl" placeholder="http://192.168.1.10:8787/" autocapitalize="off" spellcheck="false">
@@ -676,6 +684,8 @@ function renderConfig(c) {
   $('nightLevel').value = k.nightLevel ?? 0;
   $('tzPosix').value = k.tzPosix === 'UTC0' ? '' : (k.tzPosix || '');
 
+  $('mode').value = c.mode === 'sessions' ? 'sessions' : 'usage';
+
   const u = c.usage || {};
   $('showMascot').checked = u.showMascot !== false;
   $('usageUrl').value = u.usageUrl || '';
@@ -737,6 +747,7 @@ $('saveDisplay').onclick = e => save({
 }, e.target);
 
 $('saveMeter').onclick = e => save({
+  mode: $('mode').value,
   usage: {
     showMascot: $('showMascot').checked,
     usageUrl: $('usageUrl').value.trim(),

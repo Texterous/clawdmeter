@@ -157,11 +157,16 @@ void Settings::setDefaults() {
   wifi[0].pass = PROVISION_PASS;
   wifiCount = 1;
 #endif
-  apSsid  = DEFAULT_AP_SSID;
-  apPass  = DEFAULT_AP_PASS;
-  // Unique per device so several units on one network do not collide on mDNS
-  // out of the box. A hostname saved in config.json overrides this.
-  hostname = String(DEFAULT_HOSTNAME) + "-" + String(platformChipId() & 0xFFFF, HEX);
+  // Both names carry the chip suffix so units are distinguishable out of the
+  // box: the hostname because several on one network would otherwise collide on
+  // mDNS, and the AP because a giveaway batch that falls back to setup mode
+  // would otherwise put thirty identical open networks in the air, with no way
+  // for anyone to tell which unit they are configuring. A name saved in
+  // config.json overrides either.
+  String unitId = String(platformChipId() & 0xFFFF, HEX);
+  apSsid   = String(DEFAULT_AP_SSID) + "-" + unitId;
+  apPass   = DEFAULT_AP_PASS;
+  hostname = String(DEFAULT_HOSTNAME) + "-" + unitId;
 
   mode = DEFAULT_MODE;
   httpTimeout = DEFAULT_HTTP_TIMEOUT;
@@ -232,7 +237,7 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   root["apPassSet"] = s.apPass.length() > 0;
   if (includeSecrets) root["apPass"] = s.apPass;
 
-  root["mode"]              = "usage";
+  root["mode"]              = (s.mode == MODE_SESSIONS) ? "sessions" : "usage";
   root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
   root["autoBrightness"]    = s.autoBrightness;
@@ -276,8 +281,13 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
   // AP password: apply as-is when present (empty allowed => open AP).
   if (root["apPass"].is<const char*>()) s.apPass = root["apPass"].as<String>();
 
-  // "mode" is accepted and ignored: there is one mode. Keeping the key means a
-  // config exported from a future multi-mode build still imports cleanly.
+  // "mode" picks the screen. An unrecognised token leaves the current mode
+  // alone, so a config exported from a build with more screens still imports.
+  if (root["mode"].is<const char*>()) {
+    const char* m = root["mode"];
+    if      (!strcmp(m, "usage"))    s.mode = MODE_USAGE;
+    else if (!strcmp(m, "sessions")) s.mode = MODE_SESSIONS;
+  }
   if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
   if (root["brightness"].is<int>())         s.brightness = constrain((int)root["brightness"], 0, 100);
   if (root["autoBrightness"].is<bool>())    s.autoBrightness = root["autoBrightness"];

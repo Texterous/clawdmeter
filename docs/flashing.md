@@ -24,8 +24,9 @@ A new unit runs GeekMagic's stock firmware, which exposes its own OTA page.
    rejoins the same network by itself. Open `http://clawdmeter-XXXX.local`.
 
 **Use the slim image for this step.** Stock reserves most of the flash for image
-storage, so its updater rejects anything much over ~512 KB. The slim build is
-~508 KB; the full build is ~623 KB and will not fit.
+storage, so its updater rejects anything much over 512 KiB (524,288 B). The slim
+build is 516,976 B — under it, but only by ~7 KB, so watch this number when the
+image grows. The full build is 632,464 B and will not fit.
 
 > The exact ceiling has not been measured on hardware yet. If step 3 is refused
 > for lack of space, fall back to the loader below — it is 317 KB and upstream

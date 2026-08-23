@@ -1,19 +1,12 @@
 #include "UsageMode.h"
 #include <Arduino_GFX_Library.h>
 #include "Gfx.h"
+#include "Fmt.h"
+#include "Palette.h"
 #include "UsageClient.h"
 #include "Mascot.h"
 
 UsageMode g_usageMode;
-
-// Claude-usage palette (Anthropic-inspired dark theme, RGB565 of the originals).
-// Through gfxTint() like the shared palette, so the Display tab's colour
-// correction reaches these too.
-#define C_ACCENT  gfxTint(0xDBAA)   // terra-cotta 0xd97757
-#define C_UGREEN  gfxTint(0x7C6B)   // green 0x788c5d
-#define C_PANEL   gfxTint(0x18E3)   // card fill 0x1f1f1e
-#define C_BARBG   gfxTint(0x2945)   // unfilled bar track 0x2a2a28
-#define C_DIM     gfxTint(0xB574)   // secondary text 0xb0aea5
 
 // Mascot diff state for the flicker-free full-screen idle animation.
 static bool            s_mascotPrimed  = false;
@@ -42,14 +35,6 @@ static void blitMascot(Arduino_GFX* gfx, const uint8_t* cells, const uint16_t* p
     int gx = i % MASCOT_GRID, gy = i / MASCOT_GRID;
     gfx->fillRect(x0 + gx * cellPx, y0 + gy * cellPx, cellPx, cellPx, color);
   }
-}
-
-static void fmtReset(int mins, char* out, size_t n) {
-  if (mins <= 0) { strlcpy(out, "now", n); return; }
-  int d = mins / 1440, h = (mins % 1440) / 60, m = mins % 60;
-  if (d > 0)      snprintf(out, n, "%dd %dh", d, h);
-  else if (h > 0) snprintf(out, n, "%dh %02dm", h, m);
-  else            snprintf(out, n, "%dm", m);
 }
 
 static uint16_t barColor(float pct) {
@@ -86,7 +71,7 @@ static void drawMeter(Arduino_GFX* gfx, int top, const char* label,
   else if (fw > 0)  gfx->fillRect(bx, by, fw, bh, barColor(pct));
 
   char rs[16], line[28];
-  fmtReset(resetMins, rs, sizeof(rs));
+  fmtDuration(resetMins, rs, sizeof(rs));
   snprintf(line, sizeof(line), "Resets in %s", rs);
   gfx->setTextSize(2);
   gfx->setTextColor(C_DIM);

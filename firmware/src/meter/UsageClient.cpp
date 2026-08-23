@@ -24,13 +24,52 @@ bool usageFresh(uint32_t withinMs) {
 }
 
 // ---- parse: usage contract -------------------------------------------------
-// { "s":29, "sr":142, "w":4, "wr":9876, "st":"allowed", "ok":true }
+// { "s":29, "sr":142, "w":4, "wr":9876, "st":"allowed", "ok":true,
+//   "sess":[{"n":"stoplicht-72","s":"w","t":14}], "ns":4 }
 //   s  = 5h utilization %        sr = minutes until 5h reset
 //   w  = 7d utilization %        wr = minutes until 7d reset
 //   st = rate-limit status       ok = false => explicit "no data"
+//   sess = session board rows, already sorted and clipped by the daemon:
+//          n = name, s = "w"orking / "b"locked / "a"waiting, t = minutes
+//   ns = live sessions on the host (>= sess length when the board overflows)
+//
+// sess/ns are optional: a payload without them parses exactly as before, which
+// is what keeps an older daemon working against this firmware.
 static void usageFilter(JsonDocument& f) {
   f["s"] = true; f["sr"] = true; f["w"] = true;
   f["wr"] = true; f["st"] = true; f["ok"] = true;
+  f["ns"] = true;
+  JsonObject row = f["sess"].add<JsonObject>();
+  row["n"] = true; row["s"] = true; row["t"] = true;
+}
+
+static uint8_t sessionState(const char* code) {
+  switch (code ? code[0] : 'a') {
+    case 'w': return SESS_WORKING;
+    case 'b': return SESS_BLOCKED;
+    default:  return SESS_AWAITING;
+  }
+}
+
+static void applyBoard(UsageData& d, JsonDocument& doc) {
+  d.sessionRows = 0;
+  d.sessionLive = 0;
+  d.boardValid  = false;
+  if (!doc["sess"].is<JsonArrayConst>()) return;   // pre-board daemon
+
+  d.boardValid = true;
+  for (JsonObjectConst row : doc["sess"].as<JsonArrayConst>()) {
+    if (d.sessionRows >= MAX_SESSION_ROWS) break;
+    SessionInfo& si = d.sessions[d.sessionRows];
+    strlcpy(si.name, row["n"] | "?", sizeof(si.name));
+    si.state = sessionState(row["s"] | "a");
+    si.mins  = (uint16_t)constrain((long)(row["t"] | 0L), 0L, 65535L);
+    d.sessionRows++;
+  }
+  // A board that overflowed still reports the true count; fall back to the rows
+  // we got so the header can never read fewer than what is drawn under it.
+  d.sessionLive = (uint8_t)constrain((long)(doc["ns"] | (long)d.sessionRows),
+                                     (long)d.sessionRows, 255L);
 }
 
 static bool applyUsageDoc(UsageData& d, JsonDocument& doc) {
@@ -42,6 +81,7 @@ static bool applyUsageDoc(UsageData& d, JsonDocument& doc) {
   d.sessionResetMin = doc["sr"] | 0;
   d.weeklyResetMin  = doc["wr"] | 0;
   strlcpy(d.status, doc["st"] | "", sizeof(d.status));
+  applyBoard(d, doc);
 
   d.valid = true;
   d.error = false;

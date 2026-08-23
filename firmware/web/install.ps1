@@ -28,13 +28,13 @@ Write-Host 'Clawdmeter agent installer' -ForegroundColor Cyan
 Write-Host ''
 
 # --- Is there a route to the internet at all? ------------------------------
-# The common failure is running this while still joined to Clawdmeter-Setup,
+# The common failure is running this while still joined to a Clawdmeter-Setup AP,
 # which has no uplink. Detect it up front and be explicit.
 try {
   $null = Invoke-WebRequest -Uri 'https://api.github.com' -Method Head -TimeoutSec 8 -UseBasicParsing
 } catch {
   Write-Host 'No route to github.com.' -ForegroundColor Yellow
-  Say 'If you are joined to the Clawdmeter-Setup network, that is expected:'
+  Say 'If you are joined to a Clawdmeter-Setup network, that is expected:'
   Say 'it has no internet uplink. Finish setting up WiFi on the device, rejoin'
   Say 'your normal network, then run this again.'
   Say ''

@@ -19,9 +19,10 @@
 #include "Mode.h"
 #include "Clock.h"
 #include "UsageMode.h"
+#include "SessionsMode.h"
 
 // ---- mode registry --------------------------------------------------------
-static DisplayMode* kModes[] = { &g_usageMode };
+static DisplayMode* kModes[] = { &g_usageMode, &g_sessionsMode };
 static const size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
 static DisplayMode* activeMode(const Settings& s) {

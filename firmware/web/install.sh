@@ -41,11 +41,11 @@ esac
 ASSET="clawdmeter-agent-${os_tag}-${arch_tag}"
 
 # --- Is there a route to the internet at all? ------------------------------
-# The common failure is running this while still joined to Clawdmeter-Setup,
+# The common failure is running this while still joined to a Clawdmeter-Setup AP,
 # which has no uplink. Detect it up front and be explicit.
 if ! curl -fsS --head --max-time 8 https://api.github.com >/dev/null 2>&1; then
   printf 'No route to github.com.\n'
-  say 'If you are joined to the Clawdmeter-Setup network, that is expected:'
+  say 'If you are joined to a Clawdmeter-Setup network, that is expected:'
   say 'it has no internet uplink. Finish setting up WiFi on the device, rejoin'
   say 'your normal network, then run this again.'
   say ''

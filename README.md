@@ -14,11 +14,20 @@ Status · Wifi · Display · Clawdmeter · System
 ## What it does
 
 A small agent on your machine reads your Claude Code rate-limit state and POSTs it
-to the device. The device draws the 5-hour and 7-day windows, the countdown to each
-reset, and an animated mascot whose mood tracks your burn rate. That is the whole
-feature set, on purpose.
+to the device. There are two screens, picked in the web UI:
 
-The device never talks to Anthropic itself and holds no credentials.
+- **Usage meters** — the 5-hour and 7-day windows, the countdown to each reset, and
+  an animated mascot whose mood tracks your burn rate.
+- **Session board** — one row per live Claude session on your machine: a state dot,
+  the session name, and how long it has been that way. Green is working, amber is
+  waiting for you, red is stuck on a permission prompt. Six rows fit; the header
+  reports the true count when there are more.
+
+That is the whole feature set, on purpose.
+
+The device never talks to Anthropic itself and holds no credentials. The session
+board is assembled entirely on your machine — only a name, a state letter and a
+minute count ever reach the device.
 
 ## Hardware
 
@@ -110,13 +119,20 @@ Push contract:
 
 ```bash
 curl -X POST http://<device>/api/usage \
-  -d '{"s":42,"sr":118,"w":63,"wr":4200,"st":"allowed","ok":true}'
+  -d '{"s":42,"sr":118,"w":63,"wr":4200,"st":"allowed","ok":true,
+       "sess":[{"n":"stoplicht-72","s":"w","t":14}],"ns":1}'
 ```
 
 `s`/`w` are the 5-hour and 7-day percentages, `sr`/`wr` the minutes until each
-resets, `st` a status string. It is byte-compatible with
+resets, `st` a status string. The original six keys are byte-compatible with
 [`giovi321/clawdmeter-daemon`](https://github.com/giovi321/clawdmeter-daemon), so
 that daemon drives this firmware unchanged.
+
+`sess` and `ns` feed the session board and are optional: each row is `n` (name,
+≤12 chars), `s` (`w`orking / `b`locked / `a`waiting) and `t` (minutes in that
+state), with `ns` the live session count when it exceeds the six rows sent. A
+payload without them still drives the meters — the board just says the daemon is
+too old, which is a different thing from "nothing is running".
 
 ## Repository layout
 
