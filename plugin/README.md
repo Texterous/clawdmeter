@@ -39,9 +39,10 @@ This is the reason for the hook design. Claude Code's `statusLine` — the only
 thing that ever receives rate-limit figures — **never runs in the desktop app**,
 only in a terminal. Hooks are not UI, so they run everywhere.
 
-The trade is that the hooks are never given `rate_limits`, so this plugin drives
-the **session board** and not the 5h/7d usage meters. Units ship on the board for
-that reason.
+The trade is that the hooks are never given `rate_limits`, so this plugin fills the
+**session board** and leaves the 5h/7d bars in its footer empty. Those two bars are
+the only place those figures live now — the separate usage screen is gone, because
+from the desktop app it could never be anything but blank.
 
 ## What it will not do
 
@@ -49,7 +50,7 @@ that reason.
   client-to-client traffic, nothing here helps. Use a phone hotspot for both.
 - **Find a unit outside its own /24.** On a /16 or /20 the sweep can miss it; the
   device prints its IP on screen, so pass that to `/clawd:setup` instead.
-- **Show the usage meters.** See above.
+- **Fill the 5h/7d bars.** They sit under the board and stay empty here. See above.
 - **Update while Claude Code is closed.** Hooks fire on activity. The device allows
   30 minutes of quiet before it says it has lost contact, so ordinary thinking time
   never trips it.

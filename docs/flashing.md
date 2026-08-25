@@ -41,19 +41,24 @@ two independent ceilings and the lower one binds:
 | CI gate | **520,000** | `.github/workflows/build.yml` stats `firmware.bin` and **fails the build** above this. Self-imposed, and it is the one you hit first. |
 | Stock OTA ceiling | **524,288** | 512 KiB. GeekMagic's stock updater refuses an upload much over this, so an image above it cannot be installed in one step on a factory-fresh unit at all. |
 
-Measured sizes, firmware 0.3.1, all four `pio run` targets, built from a clean
+Measured sizes, firmware 0.4.0, all four `pio run` targets, built from a clean
 checkout (no `provision_local.h`, which is what CI does):
 
 | env | image | bytes | headroom to CI gate | headroom to stock ceiling |
 |---|---|--:|--:|--:|
-| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **518,736** | 1,264 | 5,552 |
-| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **518,736** | 1,264 | 5,552 |
-| `ultra` | `clawdmeter-ultra.bin` | 634,432 | — | over both |
+| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **481,440** | 38,560 | 42,848 |
+| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **481,440** | 38,560 | 42,848 |
+| `ultra` | `clawdmeter-ultra.bin` | 597,168 | — | over both |
 | `loader` | `rollback-loader.bin` | 315,920 | — | — |
 
-With `provision_local.h` present, `ultra_slim` is 48 B larger — the two
-baked credential literals (518,784). `ultra_giveaway` never varies, because `-D NO_PROVISION`
-keeps the header out whether or not it exists.
+0.4.0 dropped the separate usage screen and the mascot sprite sheet that only it
+drew: **−37,296 B**, which took the slim headroom from 1,264 B to 38,560 B. Before
+spending any of that, note what it bought — a size gate this project was one screen
+away from failing.
+
+With `provision_local.h` present, `ultra_slim` is 48 B larger — the two baked
+credential literals. `ultra_giveaway` never varies, because `-D NO_PROVISION` keeps
+the header out whether or not it exists.
 
 `ultra_giveaway` is the image that goes to recipients, and it is always the smaller
 of the two gated builds — it is `ultra_slim` with the baked-credential string
@@ -129,7 +134,7 @@ curl -F "firmware=@clawdmeter-ultra.bin" http://<device>/update
 
 Neither ceiling above applies once Clawdmeter is running — they are stock's and
 CI's, not the board's. What applies instead is free flash *above* the running
-sketch: with the 518,736 B slim image up, `ESP.getFreeSketchSpace()` is 0x300000
+sketch: with the 481,440 B slim image up, `ESP.getFreeSketchSpace()` is 0x300000
 (the LittleFS start at `_FS_start = 0x40500000`) minus the sketch rounded up to a
 sector, so `/update` accepts about **2.5 MB**. The linker script caps any image
 this project can build at `irom0_0_seg` = 1,044,464 B, well under that, so **every

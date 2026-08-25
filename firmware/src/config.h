@@ -14,7 +14,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "clawdmeter"
-#define FW_VERSION  "0.3.1"
+#define FW_VERSION  "0.4.0"
 
 #define REPO_URL    "https://github.com/Texterous/clawdmeter"
 #define REPO_OWNER  "Texterous"
@@ -129,18 +129,21 @@
 #define AUTH_REALM        "Clawdmeter"
 
 // ---------------------------------------------------------------------------
-// Display modes. Registered in main.cpp's kModes[]; settings.mode picks one.
-//   usage    — the 5h/7d meters and the mascot
-//   sessions — the session board: what every live Claude session is doing
+// Display mode. Registered in main.cpp's kModes[]; settings.mode picks one, and
+// there is one:
+//   sessions — the session board: what every live Claude session is doing, with
+//              the 5h/7d windows in its footer when the sender has them.
+//
+// There used to be a second, "usage": the same two windows plus an animated
+// mascot, on a screen of their own. It went because it could not work for most
+// recipients — those figures only ever reach a `statusLine`, and a `statusLine`
+// never runs in the Claude Code desktop app, so selecting that screen there
+// produced a dead panel. Folding the windows into the board's footer keeps the
+// numbers for anyone who has them and returned 37 KB of flash, most of it the
+// mascot sprite sheet. tools/gen_mascot.py still builds a frame header from any
+// sprite sheet if a creature is ever wanted back.
 // ---------------------------------------------------------------------------
-#define MODE_USAGE    1
 #define MODE_SESSIONS 2
-// Sessions, not usage: the board is the screen the project wants on a desk out
-// of the box, and the only one the clawd plugin can fill — the 5h/7d figures
-// reach a statusLine and nothing else, so a usage-mode unit is a dead screen for
-// anyone driving Claude Code from the desktop app. Note the trade: a
-// sessions-mode unit whose sender predates the board shows "UPDATE YOUR SENDER"
-// rather than something useful.
 #define DEFAULT_MODE  MODE_SESSIONS
 
 // Session board. The sender caps `sess` at six rows to match what fits on the

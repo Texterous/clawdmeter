@@ -27,7 +27,6 @@ struct WifiCred {
 struct UsageSettings {
   String   usageUrl;      // optional pull endpoint, e.g. http://192.168.1.10:8787/
   uint16_t pollSec;       // pull period (ignored when usageUrl is empty)
-  bool     showMascot;    // mascot animation vs. bare gauges
 
   void setDefaults();
   void toJson(JsonObject o) const;

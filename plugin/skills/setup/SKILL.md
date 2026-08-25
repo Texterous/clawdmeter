@@ -73,11 +73,8 @@ working around it.
 
 Delete `~/.clawd/sessions/` if it exists, then run any tool call. If the hooks
 are live, that directory reappears with a line in it.
+>>>
 
-Confirm the device is on the session board while you are here — that is what the
-plugin feeds. `mode` should be `sessions` in `/api/config`; units ship that way.
-If this one is on `usage`, offer to switch it: the usage meters need rate-limit
-figures the hooks are never given (see *What this cannot show*).
 
 **Empty means the hooks have not loaded yet** — the plugin was installed in this
 session. Say so and stop there:
@@ -121,12 +118,11 @@ than a named error.
 
 ## What this cannot show
 
-The **5-hour and 7-day usage meters**, and the mascot that goes with them. Those
-need `rate_limits`, which Claude Code only puts in a `statusLine` payload — and a
-`statusLine` never runs in the desktop app, only in a terminal. The session board
-needs no such thing, which is why it works in both.
+The **5-hour and 7-day bars** under the board. They need `rate_limits`, which
+Claude Code only puts in a `statusLine` payload — and a `statusLine` never runs in
+the desktop app, only in a terminal. So they stay empty, and the device leaves
+those two rows blank rather than drawing zeroes.
 
-So a unit paired this way shows sessions, everywhere, always. If the user
-specifically wants the meters and works in a terminal, that is a separate setup
-and worth saying so rather than half-installing something that silently does
-nothing on their machine.
+Do not offer to "switch screens" to fix it. From firmware 0.4.0 there is only one
+screen; the windows are a footer on it. A unit paired this way shows sessions,
+everywhere, always.

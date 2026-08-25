@@ -28,18 +28,25 @@ claude plugin install clawd@clawdmeter
 Then `/clawd:setup` and the four characters on the device screen. No Python, no
 credential, no address to look up. There is no Clawdmeter agent binary; see
 [agent/](agent/) for why, and for why the Python daemon is no longer the
-recommended sender. There are two screens, picked in the web UI:
+recommended sender. There is one screen:
 
-- **Session board** *(the default, and what the plugin fills)* — one row per live
-  Claude session on your machine: a state dot, the session name, and how long it
-  has been that way. Green is working, amber is waiting for you, red is stuck on a
-  permission prompt, and the footer tallies them in the same three colours. Six
-  rows fit; the header reports the true count when there are more.
-- **Usage meters** *(terminal only)* — the 5-hour and 7-day windows, the countdown
-  to each reset, and an animated mascot whose mood tracks your burn rate. These
-  need `rate_limits`, which Claude Code hands to a `statusLine` and nothing else —
-  and a `statusLine` never runs in the desktop app. Switch to this screen without
-  one and it has nothing to draw.
+**The session board** — one row per live Claude session on your machine: a state
+dot, the session name, and how long it has been that way. Green is working, amber
+is waiting for you, red is stuck on a permission prompt, and the footer tallies
+them in the same three colours. Six rows fit; the header reports the true count
+when there are more.
+
+Under it, **your 5-hour and 7-day windows**, as two bars — but only when the sender
+actually has them. Those figures reach a `statusLine` and nothing else, and a
+`statusLine` never runs in the Claude Code desktop app, so most senders have
+nothing to give: the footer then shows two rows of nothing instead of two
+confident zeroes.
+
+They used to be a screen of their own, with an animated mascot. Selecting it from
+the desktop app gave you a dead panel, which is not a setting worth having — and
+folding the windows into the footer returned 37 KB of flash, most of it the mascot
+sprite sheet. `tools/gen_mascot.py` still builds a frame header from any sprite
+sheet if a creature is ever wanted back.
 
 That is the whole feature set, on purpose.
 
@@ -66,10 +73,10 @@ Other SmallTV variants are not supported. This is one firmware for one board.
 ## The images, and why
 
 ```
-pio run -e ultra_slim      # 518,736 B · no TLS · installs on a factory-fresh unit
-pio run -e ultra           # 634,432 B · adds HTTPS + GitHub self-update
+pio run -e ultra_slim      # 481,440 B · no TLS · installs on a factory-fresh unit
+pio run -e ultra           # 597,168 B · adds HTTPS + GitHub self-update
 pio run -e loader          # 315,920 B · two-step install fallback
-pio run -e ultra_giveaway  # 518,736 B · ultra_slim with provisioning compiled out
+pio run -e ultra_giveaway  # 481,440 B · ultra_slim with provisioning compiled out
 ```
 
 The stock Ultra firmware reserves most of the flash for image storage, so its OTA
@@ -189,8 +196,10 @@ docs/         flashing, recovery, and the event runbook
 Derived from **[giovi321/smalltv-mod](https://github.com/giovi321/smalltv-mod)**
 (WTFPL) — the display core, WiFi/AP handling, settings persistence, the boot-time
 OTA path that lets an image exceed the free-flash limit, and the usage meter all
-began there. Pin maps trace back to the ESPHome and Tasmota communities. Mascot
-frames come from [ClaudePix](https://claudepix.vercel.app); see
-[docs/mascot-licence.md](docs/mascot-licence.md).
+began there. Pin maps trace back to the ESPHome and Tasmota communities.
+
+The mascot frames from [ClaudePix](https://claudepix.vercel.app) are **no longer in
+this firmware** — they went with the screen they lived on, which also settles the
+licensing question [docs/mascot-licence.md](docs/mascot-licence.md) was open on.
 
 Not affiliated with GeekMagic or Anthropic. MIT — see [LICENSE](LICENSE).

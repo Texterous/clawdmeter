@@ -1,8 +1,9 @@
 // Clawdmeter — Texterous firmware for the GeekMagic SmallTV-Ultra (ESP-12F / ESP8266)
 //
-// One screen: Claude Code usage, pushed to POST /api/usage by the companion
-// agent. Shared plumbing (WiFi, web UI, OTA, display core, settings) lives at
-// src root; the meter itself is a self-contained DisplayMode under src/meter.
+// One screen: the session board, pushed to POST /api/usage by the clawd plugin,
+// with the 5h/7d windows folded into its footer when the sender has them. Shared
+// plumbing (WiFi, web UI, OTA, display core, settings) lives at src root; the
+// board itself is a self-contained DisplayMode under src/meter.
 //
 // The mode registry below has exactly one entry. It stays a registry so adding a
 // second screen later does not mean restructuring this file.
@@ -18,13 +19,18 @@
 #include "OtaUpdate.h"
 #include "Mode.h"
 #include "Clock.h"
-#include "UsageMode.h"
 #include "SessionsMode.h"
 #include "Commission.h"
 #include "UsageClient.h"
 
 // ---- mode registry --------------------------------------------------------
-static DisplayMode* kModes[] = { &g_usageMode, &g_sessionsMode };
+// One entry. There used to be a second, "usage", which drew the 5h/7d meters and
+// the mascot on a screen of their own — and could not work for most recipients:
+// those figures only reach a `statusLine`, a `statusLine` never runs in the
+// desktop app, so switching to it there produced a dead screen. Folding the two
+// windows into the board's footer keeps the numbers for anyone who has them and
+// returns 37 KB of flash, most of it the mascot sprite sheet.
+static DisplayMode* kModes[] = { &g_sessionsMode };
 static const size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
 static DisplayMode* activeMode(const Settings& s) {
@@ -98,7 +104,7 @@ void appInvalidate() {
 // screen for good. Only ever sets a RAM flag: the LittleFS write belongs in
 // loop(), out of the HTTP response, exactly as webPortalLoop defers the update.
 //
-// Deliberately does NOT call appInvalidate(): that runs UsageMode::invalidate ->
+// Deliberately does NOT call appInvalidate(): that runs the mode's invalidate ->
 // usageInit -> clear(), which would wipe the very payload that just arrived.
 // Nothing is needed — needRender_ is still true because no mode has serviced yet,
 // so the first stats paint happens on the next loop pass by itself.

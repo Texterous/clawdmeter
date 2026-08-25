@@ -442,19 +442,11 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 
   <div class="card">
     <h2 class="eyebrow">Options</h2>
-    <label for="mode">Screen</label>
-    <select id="mode">
-      <option value="sessions">Session board</option>
-      <option value="usage">Usage meters (terminal only)</option>
-    </select>
-    <small class="hint">The <b>session board</b> is what units ship on and what the plugin
-      fills. The <b>usage meters</b> need 5-hour figures Claude Code only hands to a terminal
-      status line, so on the desktop app that screen stays empty.</small>
-    <div class="chk"><input type="checkbox" id="showMascot"><label for="showMascot">Show the animated mascot</label></div>
-    <small class="hint">Usage meters only; the session board ignores it. The mascot appears
-      when nothing has arrived for a while — your laptop asleep, usually. Off keeps the last
-      numbers up instead, headed <b>STALE</b> so an old reading cannot pass for a live
-      one.</small>
+    <p class="note">There is one screen: the session board, with your 5-hour and 7-day
+      windows in its footer whenever the sender has them. Those two windows used to be a
+      screen of their own — but the figures behind them only reach a terminal status line,
+      never the desktop app, so choosing that screen there left you looking at a dead
+      panel.</p>
     <label for="usageUrl">Pull URL (optional)</label>
     <input type="url" id="usageUrl" placeholder="http://192.168.1.10:8787/" autocapitalize="off" spellcheck="false">
     <small class="hint">Leave empty for the normal push setup. Fill it in only if you want
@@ -667,19 +659,21 @@ function renderMeter(m, ap) {
   const stale = m.ageSec > 1800;
   const age = `<div class="kv"><span>Last update</span><b>${fmtAgo(m.ageSec)}
        ${stale ? '<span class="pill bad">stale</span>' : '<span class="pill ok">live</span>'}</b></div>`;
-  // A board-only payload — what the plugin sends — carries no rate-limit figures at
-  // all. Drawing the gauges anyway put a confident 0% on the portal's first card for
-  // the DEFAULT screen: exactly the lie the panel's own footer avoids.
-  if (m.boardValid && !m.usageValid) {
-    box.innerHTML =
-      `<div class="kv"><span>Live sessions</span><b>${m.live}</b></div>
-       <div class="kv"><span>Shown on screen</span><b>${m.rows}</b></div>` + age;
-    return;
+  // Built the same way the panel builds it: the board, then the two windows if and
+  // only if they arrived. A board-only payload — which is what the plugin sends —
+  // carries no rate-limit figures at all, and drawing the gauges anyway put a
+  // confident 0% on the portal's first card. Neither half is assumed.
+  let html = '';
+  if (m.boardValid) {
+    html += `<div class="kv"><span>Live sessions</span><b>${m.live}</b></div>
+             <div class="kv"><span>Shown on screen</span><b>${m.rows}</b></div>`;
   }
-  box.innerHTML =
-    gauge('5-hour window', m.sessionPct, m.sessionResetMin) +
-    gauge('7-day window', m.weeklyPct, m.weeklyResetMin) +
-    `<div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>` + age;
+  if (m.usageValid) {
+    html += gauge('5-hour window', m.sessionPct, m.sessionResetMin) +
+            gauge('7-day window', m.weeklyPct, m.weeklyResetMin) +
+            `<div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>`;
+  }
+  box.innerHTML = html + age;
 }
 
 function renderStatus(s) {
@@ -814,10 +808,7 @@ function renderConfig(c) {
   $('nightLevel').value = k.nightLevel ?? 0;
   $('tzPosix').value = k.tzPosix === 'UTC0' ? '' : (k.tzPosix || '');
 
-  $('mode').value = c.mode === 'sessions' ? 'sessions' : 'usage';
-
   const u = c.usage || {};
-  $('showMascot').checked = u.showMascot !== false;
   $('usageUrl').value = u.usageUrl || '';
   $('pollSec').value = u.pollSec || 30;
 
@@ -898,9 +889,7 @@ $('saveDisplay').onclick = e => save({
 }, e.target);
 
 $('saveMeter').onclick = e => save({
-  mode: $('mode').value,
   usage: {
-    showMascot: $('showMascot').checked,
     usageUrl: $('usageUrl').value.trim(),
     pollSec: +$('pollSec').value
   }

@@ -92,29 +92,44 @@ static void drawSummary(Arduino_GFX* gfx, const UsageData& u, int y) {
   }
 }
 
-// Footer: the summary plus the 5h window, so the board is still worth looking at
-// when nothing needs attention.
+// One usage window: a label, its percentage right-aligned to the window's own
+// right edge, and a bar under both. Two of these sit side by side in the footer,
+// which is how both windows fit in the vertical space the single 5h bar used to
+// have all to itself.
+static const int WIN_W  = 104;   // 8..112 and 128..232, a 16 px gutter between
+static const int WIN_2X = 128;
+static void drawWindow(Arduino_GFX* gfx, int x, const char* label, float pctRaw) {
+  const float pct = constrain(pctRaw, 0.0f, 100.0f);
+  drawLeft(gfx, x, 202, label, 1, C_DIM);
+  char pctStr[8];
+  snprintf(pctStr, sizeof(pctStr), "%d%%", (int)lroundf(pct));
+  drawRight(gfx, x + WIN_W, 202, pctStr, 1, C_DIM);
+
+  const int by = 214, bh = 10;
+  gfx->fillRoundRect(x, by, WIN_W, bh, bh / 2, C_BARBG);
+  int fw = (int)(WIN_W * pct / 100.0f);
+  uint16_t fill = pct >= 90 ? C_RED : pct >= 75 ? C_ACCENT : C_UGREEN;
+  if (fw >= bh)    gfx->fillRoundRect(x, by, fw, bh, bh / 2, fill);
+  else if (fw > 0) gfx->fillRect(x, by, fw, bh, fill);
+}
+
+// Footer: the state tally, plus both usage windows when the sender has them — so
+// the board is still worth looking at when nothing needs attention, and the
+// numbers that used to need a screen of their own live here instead.
 static void drawFooter(Arduino_GFX* gfx, const UsageData& u) {
   gfx->fillRect(8, FOOTER_TOP, 224, 2, C_BARBG);
 
   drawSummary(gfx, u, FOOTER_TOP + 8);
 
-  // No 5h rows when the sender has no rate limits to give. The plugin's hook runs
-  // in every entrypoint but is never handed them, so drawing 0% here would be a
-  // confident lie on the most-read part of the screen.
+  // Nothing here when the sender has no rate limits to give. The plugin's hook
+  // runs in every entrypoint but is never handed them, so drawing 0% would be a
+  // confident lie on the most-read part of the screen. This is the whole reason
+  // the windows are a footer and not a mode: absent data costs two rows of
+  // silence instead of a screen that cannot be filled.
   if (!u.usageValid) return;
 
-  drawLeft(gfx, 8, 202, "5H WINDOW", 1, C_DIM);
-  char pct[8];
-  snprintf(pct, sizeof(pct), "%d%%", (int)lroundf(constrain(u.sessionPct, 0.0f, 100.0f)));
-  drawRight(gfx, 232, 202, pct, 1, C_DIM);
-
-  const int bx = 8, by = 214, bw = 224, bh = 10;
-  gfx->fillRoundRect(bx, by, bw, bh, bh / 2, C_BARBG);
-  int fw = (int)(bw * constrain(u.sessionPct, 0.0f, 100.0f) / 100.0f);
-  uint16_t fill = u.sessionPct >= 90 ? C_RED : u.sessionPct >= 75 ? C_ACCENT : C_UGREEN;
-  if (fw >= bh)    gfx->fillRoundRect(bx, by, fw, bh, bh / 2, fill);
-  else if (fw > 0) gfx->fillRect(bx, by, fw, bh, fill);
+  drawWindow(gfx, 8,       "5H", u.sessionPct);
+  drawWindow(gfx, WIN_2X,  "7D", u.weeklyPct);
 }
 
 // FNV-1a over the values the board actually draws, in the form it draws them.
@@ -154,11 +169,18 @@ static uint32_t boardFingerprint(const UsageData& u) {
     f = fnvBytes(f, row, sizeof(row));
   }
 
-  // Footer 5h window: the printed percentage, the bar's fill width in pixels
-  // (224 px, so finer than the number above it), and the fill colour's band.
-  float p = constrain(u.sessionPct, 0.0f, 100.0f);
-  const uint8_t foot[3] = { (uint8_t)lroundf(p), (uint8_t)(int)(224 * p / 100.0f),
-                            (uint8_t)(p >= 90 ? 2 : p >= 75 ? 1 : 0) };
+  // Footer usage windows: for each, the printed percentage, the bar's fill width
+  // in pixels (finer than the number above it), and the fill colour's band. Both
+  // windows, not just the 5h one — a digest that omits the 7d bar is a bar that
+  // never repaints when it moves.
+  uint8_t foot[6];
+  const float pcts[2] = { u.sessionPct, u.weeklyPct };
+  for (uint8_t i = 0; i < 2; i++) {
+    float p = constrain(pcts[i], 0.0f, 100.0f);
+    foot[i * 3 + 0] = (uint8_t)lroundf(p);
+    foot[i * 3 + 1] = (uint8_t)(int)(WIN_W * p / 100.0f);
+    foot[i * 3 + 2] = (uint8_t)(p >= 90 ? 2 : p >= 75 ? 1 : 0);
+  }
   return fnvBytes(f, foot, sizeof(foot));
 }
 
@@ -282,8 +304,8 @@ void SessionsMode::invalidate(const Settings& s) {
 }
 
 void SessionsMode::service(const Settings& s) {
-  // Same contract as UsageMode: pull when a Usage URL is configured, otherwise
-  // sit still and let the daemon POST to /api/usage.
+  // Pull when a Usage URL is configured, otherwise sit still and let the sender
+  // POST to /api/usage. The same test picks the stale window — see usageStaleMs.
   if (s.usage.usageUrl.length() >= 8) usageService(s);
 
   const UsageData& u = usageGet();

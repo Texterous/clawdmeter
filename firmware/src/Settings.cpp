@@ -16,21 +16,21 @@ static const char* CONFIG_PATH = "/config.json";
 // Meter slice
 // ===========================================================================
 void UsageSettings::setDefaults() {
-  usageUrl   = "";
-  pollSec    = DEFAULT_USAGE_POLL_SEC;
-  showMascot = true;
+  usageUrl = "";
+  pollSec  = DEFAULT_USAGE_POLL_SEC;
 }
 
 void UsageSettings::toJson(JsonObject o) const {
-  o["usageUrl"]   = usageUrl;
-  o["pollSec"]    = pollSec;
-  o["showMascot"] = showMascot;
+  o["usageUrl"] = usageUrl;
+  o["pollSec"]  = pollSec;
 }
 
+// showMascot is gone with the screen it drove, and an unknown key is simply not
+// read — so an older exported config still imports, it just no longer carries a
+// setting for a mascot that has nowhere to appear.
 void UsageSettings::fromJson(JsonObjectConst o) {
   if (o["usageUrl"].is<const char*>())  usageUrl = o["usageUrl"].as<String>();
   if (o["pollSec"].is<int>())           pollSec = constrain((int)o["pollSec"], 10, 3600);
-  if (o["showMascot"].is<bool>())       showMascot = o["showMascot"];
 }
 
 // ===========================================================================
@@ -249,7 +249,7 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   root["apPassSet"] = s.apPass.length() > 0;
   if (includeSecrets) root["apPass"] = s.apPass;
 
-  root["mode"]              = (s.mode == MODE_SESSIONS) ? "sessions" : "usage";
+  root["mode"]              = "sessions";
   root["commissioned"]      = s.commissioned;
   root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
@@ -294,12 +294,11 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
   // AP password: apply as-is when present (empty allowed => open AP).
   if (root["apPass"].is<const char*>()) s.apPass = root["apPass"].as<String>();
 
-  // "mode" picks the screen. An unrecognised token leaves the current mode
-  // alone, so a config exported from a build with more screens still imports.
+  // "mode" picks the screen, and there is exactly one. An unrecognised token —
+  // including "usage" from a unit that predates this build — leaves the mode
+  // alone, so an old exported config still imports and lands on the board.
   if (root["mode"].is<const char*>()) {
-    const char* m = root["mode"];
-    if      (!strcmp(m, "usage"))    s.mode = MODE_USAGE;
-    else if (!strcmp(m, "sessions")) s.mode = MODE_SESSIONS;
+    if (!strcmp(root["mode"], "sessions")) s.mode = MODE_SESSIONS;
   }
   // "commissioned" is emitted by settingsToJson but deliberately NOT read here.
   // This function serves POST /api/config and POST /api/import, so reading it
