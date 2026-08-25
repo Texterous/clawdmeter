@@ -40,9 +40,8 @@ jobs:
       - name: Generators are deterministic
         working-directory: firmware
         run: |
-          sha256sum src/webui.h src/agent_install.h > /tmp/before
+          sha256sum src/webui.h > /tmp/before
           python tools/gen_webui.py
-          python tools/gen_agent.py
           sha256sum -c /tmp/before
 
       # The slim image exists to fit through the stock Ultra OTA slot. If it

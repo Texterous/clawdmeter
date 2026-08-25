@@ -9,6 +9,9 @@ The splash bitmap is deliberately NOT regenerated here: gen_logo.py needs an SVG
 rasteriser that is not a build dependency, so src/splash/logo.h is committed and
 only refreshed by hand when the brand mark changes.
 
+The mascot frames are likewise not regenerated: gen_mascot.py takes a sprite
+sheet that is not in the tree.
+
 All generators are deterministic and only rewrite a file whose content actually
 changed, so this adds no rebuild churn.
 """
@@ -20,7 +23,13 @@ Import("env")  # noqa: F821 — injected by SCons
 
 TOOLS = Path(env.subst("$PROJECT_DIR")) / "tools"  # noqa: F821
 
-for script in ("gen_webui.py", "gen_agent.py"):
+# One generator, kept as a loop so adding a second is a one-line change.
+# gen_agent.py used to be here; it built src/agent_install.h out of the two
+# /agent/install.* bootstrap scripts, and nothing has included that header since
+# those routes were withdrawn from Web.cpp. It was regenerating a blob no
+# translation unit read, from two scripts whose only stated reason for existing
+# was to give the generator something to read.
+for script in ("gen_webui.py",):
     path = TOOLS / script
     if not path.exists():
         print(f"pre_build: {script} missing, skipping")

@@ -17,7 +17,6 @@ firmware/.pio/
 # source of truth; CI regenerates them). logo.h is the exception: it is
 # committed, because rasterising the SVG needs a non-build dependency.
 firmware/src/webui.h
-firmware/src/agent_install.h
 
 # Reference copy of the upstream UI, kept only while porting
 firmware/web/webui.html.upstream

@@ -4,7 +4,7 @@
 // The Texterous brand mark as a 1-bit bitmap for the boot splash: 44x74 px,
 // 6 bytes per row, MSB first, 1 = ink. 444 bytes in PROGMEM.
 //
-// Unlike webui.h and agent_install.h this is NOT regenerated on every build --
+// Unlike webui.h this is NOT regenerated on every build --
 // rasterising an SVG needs a dependency the firmware build should not carry. It
 // is committed, and refreshed by hand when the mark changes.
 #pragma once

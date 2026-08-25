@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate src/splash/logo.h from assets/texterous_logo.svg.
 
-Unlike gen_webui.py and gen_agent.py this is NOT part of the build. Rasterising
+Unlike gen_webui.py this is NOT part of the build. Rasterising
 an SVG needs a real renderer, and the firmware build should not carry that
 dependency for an asset that changes about once a year. src/splash/logo.h is
 committed; run this by hand when the brand mark changes.
@@ -68,7 +68,7 @@ def main() -> int:
 // The Texterous brand mark as a 1-bit bitmap for the boot splash: {a.width}x{a.height} px,
 // {row_bytes} bytes per row, MSB first, 1 = ink. {len(blob)} bytes in PROGMEM.
 //
-// Unlike webui.h and agent_install.h this is NOT regenerated on every build --
+// Unlike webui.h this is NOT regenerated on every build --
 // rasterising an SVG needs a dependency the firmware build should not carry. It
 // is committed, and refreshed by hand when the mark changes.
 #pragma once
