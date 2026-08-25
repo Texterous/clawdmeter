@@ -135,9 +135,13 @@
 // ---------------------------------------------------------------------------
 #define MODE_USAGE    1
 #define MODE_SESSIONS 2
-#define DEFAULT_MODE  MODE_USAGE
+// Sessions, not usage: the board is the screen the project wants on a desk out
+// of the box. Note the trade — a sessions-mode unit whose sender cannot build a
+// board shows "UPDATE YOUR SENDER" rather than something useful, and on macOS
+// and Linux that needs jq. /clawd:setup warns when it cannot produce one.
+#define DEFAULT_MODE  MODE_SESSIONS
 
-// Session board. The daemon caps `sess` at six rows to match what fits on the
+// Session board. The sender caps `sess` at six rows to match what fits on the
 // panel; MAX_SESSION_ROWS is the array that receives them.
 #define MAX_SESSION_ROWS   6
 #define SESSION_NAME_LEN  12   // 12 chars at text size 2 = 144 px, the row width

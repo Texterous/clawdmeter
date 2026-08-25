@@ -118,15 +118,42 @@ Then set, preserving every other key in the file:
 an idle session would let the panel go stale and drop to the idle mascot. 30 s
 sits comfortably inside the device's 80 s stale window.
 
-## 5. Confirm
+## 5. Check the board can be built
 
-The status line takes effect on the next render, and `rate_limits` only appears
-**after the first API response of the session** — so tell the user plainly:
+Units ship in **sessions** mode, so the board is the first thing the recipient
+sees. On macOS and Linux it needs `jq`; without it the pusher sends no
+`sess`/`ns` and the device shows "no session data / UPDATE YOUR SENDER" — which
+looks like a broken gift.
 
-> Paired. Send one message and the panel will light up within about 30 seconds.
+Windows needs nothing. On macOS or Linux, check `command -v jq`. If it is missing,
+say so plainly and offer the install rather than leaving them to read the screen:
+
+```
+brew install jq        # macOS
+sudo apt install jq    # Debian, Ubuntu
+sudo dnf install jq    # Fedora
+```
+
+If they would rather not install it, set `board=0` in `~/.clawd/config` and switch
+the device to the usage meter in its web UI (Clawdmeter tab, Screen). That is the
+honest pairing — a sessions-mode unit with no board to send has nothing to show.
+
+## 6. Confirm
+
+**A newly written `statusLine` needs Claude Code restarted before it runs.** Adding
+it to `settings.json` does not start it in the session you are in, so nothing pushes
+and the device goes stale after 80 s and shows "waiting...". Say this explicitly —
+it looks like a failed setup otherwise:
+
+> Paired. **Restart Claude Code**, then send one message — the panel updates within
+> about 30 seconds and refreshes every 30 s after that.
 
 Do not claim the panel is already live. You have proven the device is reachable,
-not that a reading has landed.
+not that anything is feeding it on a schedule.
+
+You can prove the pipe end to end without waiting for a restart by piping one
+synthetic reading through the pusher by hand, then checking `meter.valid` on
+`/api/status`. Do that if the user wants to see it work now.
 
 ## Nothing found
 

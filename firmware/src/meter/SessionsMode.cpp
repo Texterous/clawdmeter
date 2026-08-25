@@ -202,7 +202,9 @@ static void drawStale(bool error) {
   gfx->fillScreen(C_BLACK);
   drawLeft(gfx, 8, 10, "SESSIONS", 2, C_WHITE);
   gfx->fillRect(8, 34, 224, 2, C_BARBG);
-  gfxDrawCentered(error ? "daemon error" : "waiting...", 112, 2, C_DIM);
+  // "sender error", not "daemon error": what people install is the clawd plugin.
+  // Same character count, so the centred layout is unchanged.
+  gfxDrawCentered(error ? "sender error" : "waiting...", 112, 2, C_DIM);
 }
 
 // ---- DisplayMode ----------------------------------------------------------
@@ -234,7 +236,7 @@ void SessionsMode::service(const Settings& s) {
     if (needRender_) { drawBoard(u); renderedFp_ = fp; needRender_ = false; }
   } else if (!showedStale_ || u.error != staleError_) {
     // Also repainted when the REASON changes: a pull-mode unit goes quiet first
-    // ("waiting...") and only learns "daemon error" on the first failed poll after
+    // ("waiting...") and only learns "sender error" on the first failed poll after
     // that, which is the half of the message worth reading.
     showedStale_ = true;
     staleError_  = u.error;

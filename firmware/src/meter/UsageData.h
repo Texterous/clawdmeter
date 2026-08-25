@@ -25,9 +25,9 @@ struct UsageData {
   int      weeklyResetMin;   // minutes until the 7-day window resets
   char     status[16];       // e.g. "allowed", "allowed_warning", "rejected"
 
-  // Session board. Absent from older daemons, hence boardValid: an empty board
-  // ("nothing running") and no board at all ("your daemon is too old") are
-  // different things and the screen says so.
+  // Session board. Absent from a sender that does not build one, hence
+  // boardValid: an empty board ("nothing running") and no board at all
+  // ("UPDATE YOUR SENDER") are different things and the screen says so.
   SessionInfo sessions[MAX_SESSION_ROWS];
   uint8_t     sessionRows;   // rows populated in sessions[]
   uint8_t     sessionLive;   // sessions alive on the host; may exceed sessionRows
