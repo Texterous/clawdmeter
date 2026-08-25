@@ -57,7 +57,14 @@ else
   # would break the JSON — tr with a trailing backslash in the set is itself a
   # malformed escape, so the set is spelled out via a bracket expression.
   NAME=$(printf '%s' "$CWD" | sed 's#[\/]*$##; s#.*[\/]##')
-  NAME=$(printf '%s' "$NAME" | tr -d '|\\"' | cut -c"1-$NAMELEN")
+  # Two windows on the same project would otherwise draw two identical rows on
+  # the glass. Suffix the first two characters of the session id — the same shape
+  # Claude Code uses for its own session labels (stoplicht-e6) — so they stay
+  # tellable apart.
+  SUFFIX=$(printf '%s' "$SID" | cut -c1-2)
+  ROOM=$(( NAMELEN - 3 ))
+  NAME=$(printf '%s' "$NAME" | tr -d '|\\"' | cut -c"1-$ROOM")
+  NAME="${NAME}-${SUFFIX}"
 
   # Keep the original timestamp while the state is unchanged, so the device's
   # "minutes in this state" means that rather than "minutes since last tool call".

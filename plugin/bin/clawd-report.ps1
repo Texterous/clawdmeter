@@ -82,7 +82,14 @@ if ($evt -eq 'SessionEnd') {
   # Plain string replaces, not a regex character class: '[|"\]' is an unterminated
   # escape and -replace throws on it, which SilentlyContinue then hid.
   $name = $name.Replace('|', '').Replace('"', '').Replace('\', '')
-  if ($name.Length -gt $NAMELEN) { $name = $name.Substring(0, $NAMELEN) }
+  # Two windows on the same project would otherwise draw two identical rows on
+  # the glass. Suffix the first two characters of the session id — the same shape
+  # Claude Code uses for its own session labels (stoplicht-e6) — so they stay
+  # tellable apart.
+  $suffix = '-' + $sid.Substring(0, 2)
+  $room   = $NAMELEN - $suffix.Length
+  if ($name.Length -gt $room) { $name = $name.Substring(0, $room) }
+  $name = $name + $suffix
 
   # Keep the original timestamp while the state is unchanged, so the device's
   # "minutes in this state" means that rather than "minutes since last tool call".
