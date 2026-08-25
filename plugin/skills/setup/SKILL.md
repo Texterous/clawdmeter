@@ -78,7 +78,12 @@ line, **UTF-8 with no BOM**:
 ip=192.168.1.47
 host=clawd-a1b2
 code=a1b2
+ver=0.2.0
 ```
+
+`ver` is the plugin version you copied the pusher from. It is not read by the
+pusher; it is there so a stale copy can be spotted by comparing it against the
+plugin's own `version`.
 
 Add a `chain=` line only in step 4, and only if there is something to chain.
 

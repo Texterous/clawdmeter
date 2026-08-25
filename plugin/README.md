@@ -89,6 +89,15 @@ next render, never on this one.
 
 Read from, never written: `~/.claude/sessions/*.json` and `~/.claude/projects/**/*.jsonl`, for the session board only.
 
+**After a plugin update, re-run `/clawd:setup`.** The pusher in `~/.clawd/` is a
+copy, so an update does not reach it on its own — and nothing breaks to tell you,
+because the old copy keeps working. Plugin installs are version-pinned
+(`~/.claude/plugins/cache/clawdmeter/clawd/<version>/`) and old versions stay on
+disk, which is exactly why the status line points at the copy instead: pointing
+into the cache would silently keep running whichever version it was set up
+against. Compare `ver` in `~/.clawd/config` against the installed version to see
+whether yours is behind.
+
 An existing status line is **chained**, not replaced: the pusher runs it with the
 same stdin and prints its output before our own segment. `/clawd:remove` puts it
 back and deletes `~/.clawd/`.
