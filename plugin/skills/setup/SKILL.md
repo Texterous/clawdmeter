@@ -26,15 +26,19 @@ into `~/.clawd/`**. Use the copy from here on — that copied path is `PUSHER`.
 
 The copy is not incidental — do not skip it and point at the plugin directory.
 Plugins install to a **version-pinned** path
-(`~/.claude/plugins/cache/clawdmeter/clawd/0.1.0/bin/…`), so a status line
+(`~/.claude/plugins/cache/clawdmeter/clawd/<version>/bin/…`), so a status line
 aimed there would break silently on the next version bump, and again if the
 plugin is ever disabled or uninstalled. Copying decouples the two.
 
 Re-running `/clawd:setup` refreshes the copy, which is how a plugin update
-reaches the pusher. Mention that if the user is re-pairing after an update.
+reaches the pusher. Mention that if the user is re-pairing after an update — and
+copy from the plugin's own `bin/`, which is the version just installed.
 
-`${CLAUDE_PLUGIN_ROOT}` is a plugin-context variable and does **not** expand
-inside the user's `settings.json`, so write an absolute path in step 4.
+Write the pusher's path into `settings.json` as an **absolute path**. The
+plugin-root variable that works inside `hooks.json` is not expanded there. (It is
+also expanded in this file as you read it, so it cannot be named here without
+turning into a path — which is exactly what it did the first time this line was
+written.)
 
 ## 2. Find the device
 

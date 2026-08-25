@@ -348,9 +348,18 @@ try {
   $j = $Raw | ConvertFrom-Json
   $rl = $j.rate_limits
   if ($rl) {
-    # Locale-safe epoch: -UFormat %s and [double]::Parse both depend on culture,
+    # Locale-safe epoch. -UFormat %s and [double]::Parse both depend on culture,
     # and this box is nl-NL where "." is not the decimal separator.
-    $now = [long]((Get-Date).ToUniversalTime() - (Get-Date "1970-01-01T00:00:00Z").ToUniversalTime()).TotalSeconds
+    #
+    # DateTimeOffset rather than a DateTime subtraction, because the subtraction
+    # form has a trap that cost real debugging time against live hardware: a cast
+    # like [datetime]"1970-01-01T00:00:00Z" yields Kind=Local (here
+    # 1970-01-01T01:00+01:00), so subtracting it from a UTC DateTime silently
+    # loses the offset and the epoch comes out an hour wrong. The old expression
+    # was correct — it called .ToUniversalTime() on both sides — but it was one
+    # careless edit away from being wrong, and the failure is invisible: every
+    # countdown on the device is simply off by the local UTC offset.
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     if ($rl.five_hour) {
       try {
         $s  = [int]$rl.five_hour.used_percentage
