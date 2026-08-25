@@ -153,10 +153,16 @@ static void drawBoard(const UsageData& u) {
   drawLeft(gfx, 8, 10, "SESSIONS", 2, C_WHITE);
 
   if (!u.boardValid) {
-    // The payload parsed but carried no board — an older daemon. Say which end
-    // needs updating instead of showing an empty board that looks like "idle".
+    // The payload parsed but carried no board. Say which end needs attention
+    // rather than showing an empty board, which would read as "idle".
+    //
+    // Not "UPDATE THE DAEMON" any more: the sender people install is the clawd
+    // plugin, and this screen must not name a component the reader does not
+    // have. Three things reach here — a pre-board sender, the plugin with its
+    // board switched off, and the plugin on macOS or Linux with no jq — and
+    // "your sender" is the only phrase true of all three.
     gfxDrawCentered("no session data", 108, 2, C_DIM);
-    gfxDrawCentered("UPDATE THE DAEMON", 132, 1, C_ACCENT);
+    gfxDrawCentered("UPDATE YOUR SENDER", 132, 1, C_ACCENT);
     return;
   }
 

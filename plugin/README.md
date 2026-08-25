@@ -34,6 +34,26 @@ else, so a separate process authenticating as you is living on borrowed time.
 Claude Code reads its own rate limits and passes them along; we just forward
 them to a screen.
 
+## The session board
+
+The device's second screen lists every live Claude Code session on your machine
+and what each is doing — working, waiting for you, or stuck on a permission
+prompt. The plugin assembles that from `~/.claude/sessions/` and the transcript
+tails, and sends it as `sess`/`ns` alongside the usage numbers.
+
+Neither of those paths is a documented interface, so the collector is defensive:
+anything odd about one session drops that session, never the board, and never the
+usage reading.
+
+- **Windows** needs nothing extra.
+- **macOS and Linux need `jq`.** Shell alone cannot parse a transcript line
+  correctly, and half-parsing one with `sed` would put wrong states on the glass —
+  so with no `jq` the board is omitted rather than guessed. A unit in sessions
+  mode then says "no session data / UPDATE YOUR SENDER", which is the honest
+  reading.
+- Set `board=0` in `~/.clawd/config` to switch it off. Worth doing if your device
+  is on the usage screen anyway: collecting the board is most of the render cost.
+
 ## Finding the device
 
 `/clawd:setup` sweeps the local /24 for `/api/status` answering `fw:clawdmeter`
@@ -66,6 +86,8 @@ next render, never on this one.
 | `~/.claude/settings.json` | the `statusLine` entry, with `refreshInterval: 30` |
 | `~/.clawd/config` | device address, code, and any chained status line |
 | `~/.clawd/clawd-push.*` | a copy of the pusher, so the status line survives plugin updates |
+
+Read from, never written: `~/.claude/sessions/*.json` and `~/.claude/projects/**/*.jsonl`, for the session board only.
 
 An existing status line is **chained**, not replaced: the pusher runs it with the
 same stdin and prints its output before our own segment. `/clawd:remove` puts it

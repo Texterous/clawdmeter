@@ -152,6 +152,153 @@ $cfg = Read-Config
 $ip    = $cfg['ip']
 $unit  = $cfg['host']
 $chain = $cfg['chain']
+$board = $cfg['board'] -ne '0'   # session board on unless explicitly disabled
+
+# ---- session board ---------------------------------------------------------
+# The device's second screen: one row per live Claude Code session on this
+# machine. Ported from clawdmeter-daemon's collect_sessions/_classify.
+#
+# Claude Code registers each running session in ~/.claude/sessions/<pid>.json and
+# streams its transcript to ~/.claude/projects/<slug>/<sessionId>.jsonl. Neither
+# is a documented interface, so everything here is defensive: anything odd about
+# one session drops that session, never the board, and never the usage reading.
+#
+# The registry now also carries a `status` field ("idle" seen), which would be a
+# far better signal than tailing a transcript — but it was present on only 1 of
+# 20 files here, so it cannot be relied on yet. Revisit when it is universal.
+
+$BOARD_MAX_ROWS   = 6      # rows the 240x240 board renders; ns carries the truth
+$BLOCKED_AFTER    = 30     # s of transcript silence mid-tool => "blocked"
+$WORKING_STALE    = 300    # a "working" session this quiet is really waiting
+$TAIL_BYTES       = 32768
+$NAME_LEN         = 12     # what the device renders at text size 2
+$EPOCH            = [datetime]'1970-01-01T00:00:00Z'
+
+function Test-PidAlive {
+  param([int]$ProcId)
+  try { [void][System.Diagnostics.Process]::GetProcessById($ProcId); return $true }
+  catch { return $false }
+}
+
+# Last few KB of a transcript as whole lines. These files reach megabytes; only
+# the end of one says anything about what the session is doing now.
+function Get-TranscriptTail {
+  param([string]$Path)
+  $fs = $null
+  try {
+    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    $size = $fs.Length
+    $take = [math]::Min($size, $TAIL_BYTES)
+    $fs.Seek($size - $take, 'Begin') | Out-Null
+    $buf = New-Object byte[] $take
+    [void]$fs.Read($buf, 0, $take)
+    $text = [System.Text.Encoding]::UTF8.GetString($buf)
+    $lines = $text -split "`n"
+    # Drop the partial first line when we did not start at byte zero.
+    if ($size -gt $take -and $lines.Count -gt 1) { $lines = $lines[1..($lines.Count - 1)] }
+    return @($lines | Where-Object { $_.Trim() })
+  } catch { return @() }
+  finally { if ($fs) { $fs.Dispose() } }
+}
+
+# ISO-8601 with a Z suffix. InvariantCulture is load-bearing: this box is nl-NL,
+# where a culture-sensitive parse of a timestamp is a coin toss.
+function Get-EntryEpoch {
+  param($Entry)
+  if (-not $Entry -or -not $Entry.timestamp) { return $null }
+  try {
+    return [long][datetimeoffset]::Parse([string]$Entry.timestamp,
+      [cultureinfo]::InvariantCulture,
+      [System.Globalization.DateTimeStyles]::AssumeUniversal).ToUnixTimeSeconds()
+  } catch { return $null }
+}
+
+function Get-SessionState {
+  param([string]$Path, [long]$Now)
+  $lines = Get-TranscriptTail -Path $Path
+  if (-not $lines.Count) { return $null }
+  try { $mtime = [long](([System.IO.File]::GetLastWriteTimeUtc($Path)) - $EPOCH).TotalSeconds }
+  catch { return $null }
+
+  $last = $null; $lastPrompt = $null
+  for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+    try { $e = $lines[$i] | ConvertFrom-Json } catch { continue }
+    if ($e.type -ne 'user' -and $e.type -ne 'assistant') { continue }
+    if ($null -eq $last) { $last = $e }
+    if ($e.type -eq 'user' -and $null -eq $lastPrompt -and $e.origin.kind -eq 'human') { $lastPrompt = $e }
+    if ($null -ne $last -and $null -ne $lastPrompt) { break }
+  }
+  if ($null -eq $last) { return $null }
+
+  $silent = $Now - $mtime
+  $turnStart = Get-EntryEpoch $lastPrompt
+  if ($null -eq $turnStart) { $turnStart = $mtime }
+
+  if ($last.type -eq 'assistant') {
+    if ($last.message.stop_reason -eq 'tool_use') {
+      # A tool call with no result behind it: either running, or waiting on you.
+      if ($silent -ge $BLOCKED_AFTER) { return @{ s = 'b'; since = $mtime } }
+      return @{ s = 'w'; since = $turnStart }
+    }
+    $t = Get-EntryEpoch $last; if ($null -eq $t) { $t = $mtime }
+    return @{ s = 'a'; since = $t }
+  }
+  # Last entry is a user message: a fresh prompt, or a tool result coming back.
+  if ($silent -ge $WORKING_STALE) {
+    $t = Get-EntryEpoch $last; if ($null -eq $t) { $t = $mtime }
+    return @{ s = 'a'; since = $t }
+  }
+  return @{ s = 'w'; since = $turnStart }
+}
+
+function Get-SessionBoard {
+  param([long]$Now)
+  $sessDir = Join-Path $HOME '.claude\sessions'
+  $projDir = Join-Path $HOME '.claude\projects'
+  if (-not (Test-Path $sessDir)) { return $null }
+
+  $rows = @()
+  $index = $null
+  foreach ($f in (Get-ChildItem -Path $sessDir -Filter '*.json' -ErrorAction SilentlyContinue)) {
+    try { $reg = Get-Content $f.FullName -Raw -ErrorAction Stop | ConvertFrom-Json } catch { continue }
+    if (-not $reg.pid -or -not $reg.sessionId) { continue }
+    # Registry files outlive their process, so liveness is the real filter.
+    if (-not (Test-PidAlive -ProcId ([int]$reg.pid))) { continue }
+    # Built lazily: one glob beats a search per session, but a machine with no
+    # live sessions should not pay for it at all.
+    if ($null -eq $index) {
+      $index = @{}
+      foreach ($t in (Get-ChildItem -Path $projDir -Filter '*.jsonl' -Recurse -ErrorAction SilentlyContinue)) {
+        $index[$t.BaseName] = $t.FullName
+      }
+    }
+    $path = $index[[string]$reg.sessionId]
+    if (-not $path) { continue }
+    $st = Get-SessionState -Path $path -Now $Now
+    if ($null -eq $st) { continue }
+
+    $name = $reg.name
+    if (-not $name) { try { $name = Split-Path ([string]$reg.cwd) -Leaf } catch {} }
+    if (-not $name) { $name = ([string]$reg.sessionId).Substring(0, 8) }
+    $name = [string]$name
+    if ($name.Length -gt $NAME_LEN) { $name = $name.Substring(0, $NAME_LEN) }
+
+    $mins = [math]::Floor(($Now - $st.since) / 60)
+    if ($mins -lt 0) { $mins = 0 }
+    if ($mins -gt 65535) { $mins = 65535 }
+    $rows += [pscustomobject]@{ n = $name; s = $st.s; t = [int]$mins }
+  }
+
+  # Most urgent first, so truncating to six rows can only drop the calm ones.
+  $rank = @{ 'b' = 0; 'a' = 1; 'w' = 2 }
+  $sorted = @($rows | Sort-Object @{ Expression = { $rank[$_.s] } }, @{ Expression = { -$_.t } })
+  return @{ rows = @($sorted | Select-Object -First $BOARD_MAX_ROWS); live = $rows.Count }
+}
+
+function ConvertTo-JsonString {
+  param([string]$Value)
+  return ($Value -replace '\\', '\\\\' -replace '"', '\"' -replace "[`r`n`t]", ' ')
+}
 
 $s = $null; $w = $null; $sr = 0; $wr = 0
 
@@ -202,7 +349,23 @@ if ($ip) {
     else                { $st = 'allowed' }
     $wv = 0
     if ($null -ne $w) { $wv = $w }
-    $body = '{"s":' + $s + ',"sr":' + $sr + ',"w":' + $wv + ',"wr":' + $wr + ',"st":"' + $st + '","ok":true}'
+    $body = '{"s":' + $s + ',"sr":' + $sr + ',"w":' + $wv + ',"wr":' + $wr + ',"st":"' + $st + '","ok":true'
+    # sess/ns are optional by contract — a payload without them parses exactly as
+    # the usage-only one. But a unit in sessions mode reads their absence as "the
+    # sender is too old", so omit them only when the board is switched off.
+    if ($board) {
+      try {
+        $bd = Get-SessionBoard -Now $now
+        if ($null -ne $bd) {
+          $parts = @()
+          foreach ($r in $bd.rows) {
+            $parts += '{"n":"' + (ConvertTo-JsonString $r.n) + '","s":"' + $r.s + '","t":' + $r.t + '}'
+          }
+          $body += ',"sess":[' + ($parts -join ',') + '],"ns":' + $bd.live
+        }
+      } catch {}
+    }
+    $body += '}'
   } else {
     $body = '{"ok":false}'
   }

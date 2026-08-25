@@ -88,6 +88,126 @@ case "$1" in
     exit 0 ;;
 esac
 
+# ---- session board ---------------------------------------------------------
+# The device's second screen: one row per live Claude Code session on this
+# machine. Ported from clawdmeter-daemon's collect_sessions/_classify.
+#
+# Claude Code registers each running session in ~/.claude/sessions/<pid>.json and
+# streams its transcript to ~/.claude/projects/<slug>/<sessionId>.jsonl. Neither
+# is a documented interface, so everything here is defensive: anything odd about
+# one session drops that session, never the board, and never the usage reading.
+#
+# Needs jq. Shell alone cannot parse a transcript line correctly, and half-parsing
+# one with sed would put wrong states on the glass — so with no jq the board is
+# omitted rather than guessed. The device treats a payload with no sess/ns as
+# coming from a pre-board sender, which is the honest reading of "we cannot tell".
+
+BOARD_MAX_ROWS=6
+BLOCKED_AFTER=30      # s of transcript silence mid-tool => "blocked"
+WORKING_STALE=300     # a "working" session this quiet is really waiting
+TAIL_BYTES=32768
+NAME_LEN=12           # what the device renders at text size 2
+
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+
+# "<state> <since_epoch>" for one transcript, or nothing if it says nothing.
+# fromdateiso8601 rejects fractional seconds and Claude's timestamps have them,
+# so the fraction is stripped first — with a [.] character class, because a
+# backslash escape does not survive both the shell and jq's string parser.
+classify() {
+  _p=$1; _now=$2
+  _mt=$(file_mtime "$_p") || return 1
+  [ -n "$_mt" ] || return 1
+  # -r matters: without raw output jq returns a quoted JSON string, and the
+  # caller's arithmetic then chokes on the trailing quote.
+  tail -c "$TAIL_BYTES" "$_p" 2>/dev/null | jq -rRn \
+      --argjson now "$_now" --argjson mtime "$_mt" \
+      --argjson blocked "$BLOCKED_AFTER" --argjson stale "$WORKING_STALE" '
+    def ts: if . then (sub("[.][0-9]+Z$";"Z") | fromdateiso8601?) else null end;
+    [inputs | fromjson? | select(.type=="user" or .type=="assistant")] as $es
+    | ($es | last) as $last
+    | ($es | map(select(.type=="user" and .origin.kind=="human")) | last) as $lp
+    | if $last == null then empty
+      else
+        ($now - $mtime) as $silent
+        | (($lp.timestamp | ts) // $mtime) as $turn
+        | if $last.type == "assistant" then
+            if $last.message.stop_reason == "tool_use" then
+              # A tool call with no result behind it: running, or waiting on you.
+              (if $silent >= $blocked then "b \($mtime)" else "w \($turn)" end)
+            else "a \((($last.timestamp | ts) // $mtime))" end
+          else
+            # A user message last: a fresh prompt, or a tool result coming back.
+            (if $silent >= $stale then "a \((($last.timestamp | ts) // $mtime))"
+             else "w \($turn)" end)
+          end
+      end' 2>/dev/null
+}
+
+# Prints "<live_count><TAB>[<sess json array>]", or nothing.
+session_board() {
+  _now=$1
+  _sd="$HOME/.claude/sessions"
+  _pd="$HOME/.claude/projects"
+  [ -d "$_sd" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+
+  # One jq spawn for the whole registry. These files are single-line JSON with no
+  # trailing newline, so they cannot be read line by line — but jq's parser reads
+  # a concatenated stream of values happily. One spawn instead of twenty is the
+  # whole point: process creation, not parsing, is what this loop costs.
+  _regs=$(cat "$_sd"/*.json 2>/dev/null | jq -r '
+      [(.pid // ""), (.sessionId // ""),
+       (.name // (.cwd // "" | split("/") | last) // "")] | @tsv' 2>/dev/null)
+  [ -n "$_regs" ] || return 1
+
+  _idx=$(mktemp 2>/dev/null) || return 1
+  find "$_pd" -name '*.jsonl' 2>/dev/null > "$_idx"
+
+  # The loop prints and the parent captures, rather than assigning inside a
+  # pipeline: `while read` on the right of a pipe runs in a subshell, so anything
+  # accumulated in there is discarded the moment the loop ends.
+  _tab=$(printf '	')
+  _rows=$(printf '%s
+' "$_regs" | while IFS="$_tab" read -r _pid _sid _nm; do
+    [ -n "$_pid" ] && [ -n "$_sid" ] || continue
+    # Registry files outlive their process, so liveness is the real filter.
+    kill -0 "$_pid" 2>/dev/null || continue
+    _tp=$(grep -F "$_sid.jsonl" "$_idx" 2>/dev/null | head -1)
+    [ -n "$_tp" ] || continue
+    _st=$(classify "$_tp" "$_now") || continue
+    [ -n "$_st" ] || continue
+    _state=${_st%% *}; _since=${_st##* }
+
+    _mins=$(( (_now - _since) / 60 ))
+    [ "$_mins" -lt 0 ] && _mins=0
+    [ "$_mins" -gt 65535 ] && _mins=65535
+    [ -n "$_nm" ] || _nm=$(printf '%s' "$_sid" | cut -c1-8)
+    _nm=$(printf '%s' "$_nm" | cut -c"1-$NAME_LEN")
+    # Strip rather than escape the two characters that would break the JSON.
+    # Nested backslash escaping through sh and sed is a reliable way to emit a
+    # malformed payload, and the name is already truncated to 12 characters, so
+    # dropping a stray quote from a pathological one loses nothing real.
+    _nmj=$(printf '%s' "$_nm" | tr -d '"\\')
+    case "$_state" in b) _rank=0 ;; a) _rank=1 ;; *) _rank=2 ;; esac
+    # Most urgent first; the second key is 65535-mins so a plain ascending sort
+    # puts the longest-waiting first within a state. Truncating to six rows can
+    # then only ever drop the calmest ones.
+    printf '%s %05d {"n":"%s","s":"%s","t":%s}
+'       "$_rank" "$((65535 - _mins))" "$_nmj" "$_state" "$_mins"
+  done)
+  rm -f "$_idx"
+
+  _rows=$(printf '%s' "$_rows" | grep -v '^[[:space:]]*$')
+  # No `|| echo 0` here: grep -c PRINTS 0 and also EXITS 1 on no match, so the
+  # fallback ran too and _n became "0\n0" — which cut then split across two
+  # fields and put a raw newline in the middle of the JSON body.
+  _n=$(printf '%s' "$_rows" | grep -c '^[0-9]' 2>/dev/null)
+  _n=${_n:-0}
+  _sess=$(printf '%s' "$_rows" | sort -k1,1n -k2,2n | head -"$BOARD_MAX_ROWS"           | sed 's/^[0-9]* [0-9]* //' | paste -sd, - 2>/dev/null)
+  printf '%s	[%s]' "$_n" "$_sess"
+}
+
 # ---- normal mode: status line -----------------------------------------------
 RAW=$(cat)
 IP=$(cfg_get ip)
@@ -131,7 +251,19 @@ if [ -n "$IP" ] && command -v curl >/dev/null 2>&1; then
     elif [ "$S" -ge 80  ]; then ST=allowed_warning
     else                        ST=allowed
     fi
-    BODY="{\"s\":${S},\"sr\":${SR},\"w\":${W:-0},\"wr\":${WR},\"st\":\"${ST}\",\"ok\":true}"
+    BODY="{\"s\":${S},\"sr\":${SR},\"w\":${W:-0},\"wr\":${WR},\"st\":\"${ST}\",\"ok\":true"
+    # sess/ns are optional by contract — a payload without them parses exactly as
+    # the usage-only one. But a unit in sessions mode reads their absence as "the
+    # sender is too old", so omit them only when the board is off or jq is absent.
+    if [ "$(cfg_get board)" != "0" ]; then
+      BOARD=$(session_board "$NOW" 2>/dev/null)
+      if [ -n "$BOARD" ]; then
+        NS=$(printf '%s' "$BOARD" | cut -f1)
+        SESS=$(printf '%s' "$BOARD" | cut -f2)
+        BODY="${BODY},\"sess\":${SESS},\"ns\":${NS}"
+      fi
+    fi
+    BODY="${BODY}}"
   else
     BODY='{"ok":false}'
   fi
