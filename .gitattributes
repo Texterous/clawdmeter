@@ -1,0 +1,6 @@
+# The pusher runs on macOS and Linux, where a CRLF shebang is a hard failure
+# ("bad interpreter"). Pin it to LF regardless of anyone's core.autocrlf.
+*.sh text eol=lf
+
+# PowerShell is fine either way; keep it native so Windows diffs stay clean.
+*.ps1 text
