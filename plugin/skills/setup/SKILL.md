@@ -34,9 +34,11 @@ plugin's `bin/`:
 - Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<bin>/clawd-find.ps1"`
 - macOS, Linux: `sh "<bin>/clawd-find.sh"`
 
-Each line is `<ip> <host>`. Match the host ending in the user's code. With
-several units and no match, list them and ask — a hackathon room can hold thirty,
-and the code is what tells them apart. With none, work through *Nothing found*.
+Each line is `<ip> <host>`. Match the host ending in the user's code — or read
+`code` straight out of `/api/status`, which is the same string the device prints.
+With several units and no match, list them and ask: a hackathon room can hold
+thirty, and the code is what tells them apart. With none, work through
+*Nothing found*.
 
 Confirm before writing:
 
@@ -56,28 +58,26 @@ That is the whole of it. Nothing goes into `~/.claude/settings.json`, and no
 script is copied anywhere — the hooks ship inside the plugin and reference it
 directly, so an update or an uninstall needs no follow-up.
 
-## 3. Widen the device's stale window
+**Write `host`, not just `ip`.** The address is a DHCP lease on a device that
+roams; with `host` present the hooks relocate the unit by themselves when it
+moves and rewrite `ip`. With only `ip`, the pairing dies the next time the router
+hands out a different one.
 
-```
-curl -s -m 5 -X POST -H 'Content-Type: application/json' \
-     -d '{"usage":{"pollSec":900}}' http://<address>/api/config
-```
+Nothing else needs configuring. Firmware 0.3.1 and later allow 30 minutes of
+quiet on a pushed unit, so there is no stale window to widen — earlier versions
+needed a `pollSec` POST here and dropped to "waiting..." after 80 seconds without
+it. If `/api/status` reports a version below 0.3.1, offer the OTA rather than
+working around it.
 
-This matters. The device calls a reading stale after `pollSec * 2 + 20` seconds,
-so the default 30 leaves only **80 seconds** — and hooks only fire when the user
-does something. Without this, the board drops to "waiting..." after a minute and
-a half of thinking time. At 900 the tolerance is **30 minutes**, which reads as
-"you have not touched Claude in a while" rather than as a fault.
-
-Also confirm the device is on the session board, since that is what the plugin
-feeds: `mode` should be `sessions` in `/api/config`. Units ship that way; if this
-one is on `usage`, offer to switch it, because the usage meters need rate-limit
-figures the hooks are never given (see *What this cannot show*).
-
-## 4. Check whether the hooks are live, and prove it
+## 3. Check whether the hooks are live, and prove it
 
 Delete `~/.clawd/sessions/` if it exists, then run any tool call. If the hooks
 are live, that directory reappears with a line in it.
+
+Confirm the device is on the session board while you are here — that is what the
+plugin feeds. `mode` should be `sessions` in `/api/config`; units ship that way.
+If this one is on `usage`, offer to switch it: the usage meters need rate-limit
+figures the hooks are never given (see *What this cannot show*).
 
 **Empty means the hooks have not loaded yet** — the plugin was installed in this
 session. Say so and stop there:

@@ -3,6 +3,7 @@
 #include "Gfx.h"
 #include "Net.h"
 #include "Palette.h"
+#include "Fmt.h"
 
 // One tick a second: the dots advance and the IP is re-read. Everything else in
 // commissionService is a millis() compare, and that matters — loop() calls in
@@ -54,12 +55,11 @@ static void drawWaiting() {
 
 // Full paint. Every row and its width against the 232 px content budget:
 //    10  ALMOST DONE               3   11 x 6 x 3 = 198
-//    58  One step left: a program  1   24 x 6 x 1 = 144
-//    72  on your computer sends    1   22 x 6 x 1 = 132
-//    86  your usage. Set it up at  1   24 x 6 x 1 = 144
-//   106  <host>.local              2   16 x 6 x 2 = 192
-//   130  or                        1    2 x 6 x 1 =  12
-//   144  <ip>                      2   15 x 6 x 2 = 180  (longest possible IPv4)
+//    58  In Claude Code, run       1   19 x 6 x 1 = 114
+//    74  /clawd:setup a1b2         2   17 x 6 x 2 = 204
+//   106  or set it up at           1   15 x 6 x 1 =  90
+//   120  <host>.local              2   16 x 6 x 2 = 192
+//   142  <ip>                      2   15 x 6 x 2 = 180  (longest possible IPv4)
 //   208  Waiting for data...       2   19 x 6 x 2 = 228
 // `addr` is null when the station is not associated.
 static void drawFull(const Settings& s, const char* addr) {
@@ -70,43 +70,52 @@ static void drawFull(const Settings& s, const char* addr) {
   gfxDrawCentered("ALMOST DONE", 10, 3, C_ACCENT);
   gfx->fillRect(8, 44, 224, 2, C_BARBG);
 
-  // Three size-1 rows that read as one sentence ending in the address under
-  // them. This is the whole agent story the panel can carry: name the
-  // requirement, name the machine class ("computer", so a phone-only reader
-  // knows they need something else), and hand off to the portal for the steps.
+  // The whole remaining step, as the literal thing to type. This used to be three
+  // rows of prose about "a program on your computer" that sent the reader to the
+  // portal to find out what that program was — true when the sender was a Python
+  // daemon nobody could name, and now just a detour: the sender is the clawd
+  // plugin and its setup command fits on one row at size 2, code included.
+  //
+  // The code, not the hostname, because that is the argument /clawd:setup asks
+  // for; the address below is for anyone who would rather look than type.
   // No mascot: its meaning is "your laptop is asleep", which is the opposite of
   // what this screen says, and it would cost the rows below it.
-  gfxDrawCentered("One step left: a program", 58, 1, C_DIM);
-  gfxDrawCentered("on your computer sends",   72, 1, C_DIM);
-  gfxDrawCentered("your usage. Set it up at", 86, 1, C_DIM);
+  char code[8];
+  fmtDeviceCode(s.hostname.c_str(), code, sizeof(code));
+  char cmd[40];
+  snprintf(cmd, sizeof(cmd), "/clawd:setup %s", code);
+  gfxDrawCentered("In Claude Code, run", 58, 1, C_DIM);
+  gfxDrawCentered(cmd, 74, gfxFitSize(cmd, 232, 2), C_WHITE);
 
   if (!addr) {
     // Not associated, so there is no address worth typing. Printing 0.0.0.0 as
     // the thing to open is worse than saying nothing — it reads as an instruction.
-    gfxDrawCentered("Rejoining WiFi", 118, 2, C_ACCENT);      // 14 x 6 x 2 = 168
+    gfxDrawCentered("Rejoining WiFi", 120, 2, C_ACCENT);      // 14 x 6 x 2 = 168
   } else {
-    // Both addresses, and neither dimmed relative to the other, because their
-    // failure modes are opposite: a stale IP after a DHCP renew fails SILENTLY
-    // (the sender posts into the void), while an unresolvable .local fails
-    // immediately and loudly. Showing both means one of the two is always
-    // diagnosable. The name goes first because it survives a lease change; it is
-    // also the line that gets dropped when a hand-set hostname is too long for
-    // even 6x8, since the IP always fits.
+    // Both addresses, because their failure modes are opposite: a stale IP after
+    // a DHCP renew fails SILENTLY (the sender posts into the void), while an
+    // unresolvable .local fails immediately and loudly. Showing both means one of
+    // the two is always diagnosable. The name goes first because it survives a
+    // lease change; it is also the line that gets dropped when a hand-set
+    // hostname is too long for even 6x8, since the IP always fits.
     // netMdnsTaken(): another responder on this link already owns the name, and
     // ours has withdrawn its service record rather than renamed itself — so
     // <host>.local now resolves ONLY to the stranger's unit. Printing it would
     // aim the recipient's sender at somebody else's screen, which is worse than
     // printing no name at all. The IP-only layout below already handles it.
+    gfxDrawCentered("or set it up at", 106, 1, C_DIM);
     char url[64];
     snprintf(url, sizeof(url), "%s.local", s.hostname.c_str());
     uint8_t sz = (s.hostname.length() && !netMdnsTaken())
                    ? gfxFitSizeMin(url, 232, 2, 1) : 0;
     if (sz) {
-      gfxDrawCentered(url, 106, sz, C_UGREEN);
-      gfxDrawCentered("or", 130, 1, C_DIM);
-      gfxDrawCentered(addr, 144, gfxFitSize(addr, 232, 2), C_UGREEN);
+      gfxDrawCentered(url, 120, sz, C_UGREEN);
+      // Same size as the name above it, deliberately. The .local lookup is the
+      // one that fails on a network with mDNS blocked — measured on the author's
+      // own AP — so demoting the address that always works would be backwards.
+      gfxDrawCentered(addr, 142, gfxFitSize(addr, 232, 2), C_UGREEN);
     } else {
-      gfxDrawCentered(addr, 106, gfxFitSize(addr, 232, 2), C_UGREEN);
+      gfxDrawCentered(addr, 120, gfxFitSize(addr, 232, 2), C_UGREEN);
     }
   }
 

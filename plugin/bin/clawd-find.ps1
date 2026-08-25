@@ -1,13 +1,20 @@
 <#
   clawd-find.ps1 — locate Clawdmeter units on the local network.
 
-  Used by /clawd:setup only. The hook path never needs this: once paired, the
-  address is in ~/.clawd/config. Prints one "<ip> <host>" line per unit found.
+  Two jobs, and the second is the one that keeps a pairing alive:
+
+    (no args) / -Prefix   list every unit on a /24, as "<ip> <host>" lines.
+                          Used by /clawd:setup to pick a unit.
+    -Resolve <host>       print the current IP of ONE named unit, or nothing.
+                          Used by clawd-report when the stored address stops
+                          answering, which is what a DHCP renewal looks like from
+                          here. Without this a paired unit went silent for good
+                          and the only cure was re-running setup by hand.
 
   Windows PowerShell 5.1: async TCP connects in batches of 64 keep a full /24
   sweep near two seconds without needing PS 7's -Parallel.
 #>
-param([string]$Prefix)
+param([string]$Prefix, [string]$Resolve)
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
@@ -59,24 +66,53 @@ function Get-Units {
   return $found
 }
 
-# mDNS first (nearly free when the resolver cooperates), then the /24 the unit
-# was last seen on, then this machine's own /24 in case both of them moved.
-function Find-Unit {
-  param([string]$UnitHost)
+# One named unit's current IP.
+#
+# Sweep FIRST, mDNS second, and the order is load-bearing rather than a
+# preference. On Windows PowerShell 5.1 a failed Invoke-RestMethod to an
+# unresolvable .local name leaves the thread pool in a state where the async TCP
+# connects below never report complete: measured on this box, a sweep that finds
+# the unit on its own finds ZERO open ports when it runs after that lookup. So the
+# reliable path goes first, and .local — which is the flaky one here, and only
+# earns its keep for a unit outside this /24 — runs only when the sweep came up
+# empty and there is nothing left to poison.
+#
+# Note what the mDNS branch returns: /api/status reports the device's own numeric
+# address, so a working .local lookup yields an IP with no DNS API at all.
+# A name lookup that actually gives up. Invoke-RestMethod's -TimeoutSec does NOT
+# bound DNS resolution on 5.1 — it applies to the request, which has not started
+# yet — so an unresolvable .local name cost 6.6 s measured here and pushed the
+# whole worst case past the hook's budget. BeginGetHostAddresses is bounded by a
+# wait handle we own.
+function Resolve-Dns {
+  param([string]$Name, [int]$Ms = 800)
   try {
-    $r = Invoke-RestMethod -Uri "http://$UnitHost.local/api/status" -TimeoutSec 2 -ErrorAction Stop
-    if ($r.host -eq $UnitHost) { return "$UnitHost.local" }
-  } catch {}
-  $cfg = Read-Config
-  $prefixes = @()
-  if ($cfg['ip']) { $prefixes += (($cfg['ip'] -split '\.')[0..2] -join '.') }
-  $mine = Get-LocalPrefix
-  if ($mine -and ($prefixes -notcontains $mine)) { $prefixes += $mine }
-  foreach ($p in $prefixes) {
-    foreach ($u in (Get-Units -NetPrefix $p)) {
-      if ($u.Host -eq $UnitHost) { return $u.Ip }
+    $ar = [System.Net.Dns]::BeginGetHostAddresses($Name, $null, $null)
+    if (-not $ar.AsyncWaitHandle.WaitOne($Ms)) { return $null }
+    foreach ($a in [System.Net.Dns]::EndGetHostAddresses($ar)) {
+      if ($a.AddressFamily -eq 'InterNetwork') { return $a.ToString() }
     }
+  } catch {}
+  return $null
+}
+
+function Resolve-Unit {
+  param([string]$UnitHost)
+  if (-not $UnitHost) { return $null }
+  foreach ($u in (Get-Units)) { if ($u.Host -eq $UnitHost) { return $u.Ip } }
+  $mdns = Resolve-Dns "$UnitHost.local"
+  if ($mdns) {
+    try {
+      $r = Invoke-RestMethod -Uri "http://$mdns/api/status" -TimeoutSec 2 -ErrorAction Stop
+      if ($r.host -eq $UnitHost) { return $mdns }
+    } catch {}
   }
   return $null
+}
+
+if ($Resolve) {
+  $ip = Resolve-Unit -UnitHost $Resolve
+  if ($ip) { Write-Output $ip }
+  exit 0
 }
 foreach ($u in (Get-Units -NetPrefix $Prefix)) { Write-Output ("$($u.Ip) $($u.Host)") }

@@ -4,6 +4,7 @@
 #include "Fmt.h"
 #include "Palette.h"
 #include "UsageClient.h"
+#include "Net.h"
 
 SessionsMode g_sessionsMode;
 
@@ -49,34 +50,46 @@ static void drawLeft(Arduino_GFX* gfx, int x, int y, const char* s,
   gfx->print(s);
 }
 
-// "1 BLOCKED  2 WAITING  1 WORKING", minus whatever is zero. Worst case is all
-// three at 31 chars = 186 px at size 1, which fits the 224 px content width.
-static void summaryLine(const UsageData& u, char* out, size_t n) {
+// "1 BLOCKED  2 WAITING  1 WORKING", minus whatever is zero — each count in its
+// own lamp colour rather than the whole line in grey. The row dots are the traffic
+// light and this is its tally, so a red "1 BLOCKED" that reads from across the
+// desk is the point of having a tally at all.
+//
+// Drawn as up to three segments advancing left to right. Widest case is three
+// two-digit counts: 3 x (10 x 6) + 2 x 12 gaps = 204 px inside the 224 px content
+// width, and a segment that would overrun is dropped whole rather than clipped.
+static void drawSummary(Arduino_GFX* gfx, const UsageData& u, int y) {
   if (u.sessionLive > u.sessionRows) {   // board overflowed: say so rather than
-    snprintf(out, n, "SHOWING %u OF %u", // describing only the rows drawn
+    char line[24];                       // describing only the rows drawn
+    snprintf(line, sizeof(line), "SHOWING %u OF %u",
              (unsigned)u.sessionRows, (unsigned)u.sessionLive);
+    drawLeft(gfx, 8, y, line, 1, C_DIM);
     return;
   }
-  uint8_t blocked = 0, waiting = 0, working = 0;
+
+  // Ordered blocked, waiting, working — the same urgency order the rows are
+  // sorted in, so the tally reads as a summary of the list above it.
+  uint8_t count[3] = { 0, 0, 0 };
   for (uint8_t i = 0; i < u.sessionRows; i++) {
     switch (u.sessions[i].state) {
-      case SESS_BLOCKED: blocked++; break;
-      case SESS_WORKING: working++; break;
-      default:           waiting++; break;
+      case SESS_BLOCKED: count[0]++; break;
+      case SESS_WORKING: count[2]++; break;
+      default:           count[1]++; break;
     }
   }
-  out[0] = 0;
-  size_t len = 0;
-  // snprintf returns what it WOULD have written, so clamp before advancing —
-  // otherwise a truncating write makes (n - len) underflow on the next one.
-  auto append = [&](unsigned count, const char* label) {
-    if (!count || len + 1 >= n) return;
-    int wrote = snprintf(out + len, n - len, "%s%u %s", len ? "  " : "", count, label);
-    if (wrote > 0) len = (len + (size_t)wrote < n) ? len + (size_t)wrote : n - 1;
-  };
-  append(blocked, "BLOCKED");
-  append(waiting, "WAITING");
-  append(working, "WORKING");
+
+  static const char* const kLabel[3] = { "BLOCKED", "WAITING", "WORKING" };
+  const uint16_t color[3] = { C_RED, C_AMBER, C_UGREEN };
+  int x = 8;
+  for (uint8_t i = 0; i < 3; i++) {
+    if (!count[i]) continue;
+    char seg[16];
+    snprintf(seg, sizeof(seg), "%u %s", (unsigned)count[i], kLabel[i]);
+    int w = gfxTextW(seg, 1);
+    if (x + w > 232) return;
+    drawLeft(gfx, x, y, seg, 1, color[i]);
+    x += w + 12;                          // two spaces of gap at size 1
+  }
 }
 
 // Footer: the summary plus the 5h window, so the board is still worth looking at
@@ -84,9 +97,7 @@ static void summaryLine(const UsageData& u, char* out, size_t n) {
 static void drawFooter(Arduino_GFX* gfx, const UsageData& u) {
   gfx->fillRect(8, FOOTER_TOP, 224, 2, C_BARBG);
 
-  char line[36];
-  summaryLine(u, line, sizeof(line));
-  if (line[0]) drawLeft(gfx, 8, FOOTER_TOP + 8, line, 1, C_DIM);
+  drawSummary(gfx, u, FOOTER_TOP + 8);
 
   // No 5h rows when the sender has no rate limits to give. The plugin's hook runs
   // in every entrypoint but is never handed them, so drawing 0% here would be a
@@ -164,9 +175,9 @@ static void drawBoard(const UsageData& u) {
     //
     // Not "UPDATE THE DAEMON" any more: the sender people install is the clawd
     // plugin, and this screen must not name a component the reader does not
-    // have. Three things reach here — a pre-board sender, the plugin with its
-    // board switched off, and the plugin on macOS or Linux with no jq — and
-    // "your sender" is the only phrase true of all three.
+    // have. What reaches here is a sender that predates the board — an old
+    // plugin, or the upstream Python daemon — so "your sender" is the phrase
+    // that is true of every one of them.
     gfxDrawCentered("no session data", 108, 2, C_DIM);
     gfxDrawCentered("UPDATE YOUR SENDER", 132, 1, C_ACCENT);
     return;
@@ -199,18 +210,61 @@ static void drawBoard(const UsageData& u) {
   drawFooter(gfx, u);
 }
 
-// Nothing has arrived recently: say so rather than leaving a stale board up.
-// A board that keeps showing "working" for a laptop that went to sleep is worse
+// Nothing has arrived recently: say so rather than leaving a stale board up. A
+// board that keeps showing "working" for a laptop that went to sleep is worse
 // than one that admits it lost contact.
-static void drawStale(bool error) {
+//
+// But "waiting..." alone was a dead end, and it is the screen people actually
+// hit — the one moment a recipient needs to know what to do and there is no card
+// in the box to tell them. The device knows all three of the things that would
+// help, so it prints them: the command, the code that picks this unit out of
+// thirty, and the address of its own web UI.
+//
+// Only a commissioned unit reaches here — main.cpp holds one that has never been
+// fed on the commissioning screen instead — so this never has to double as a
+// first-run screen, and re-running setup is the honest advice: it is idempotent,
+// and re-finding a unit whose IP moved is the usual reason a paired device goes
+// quiet and stays quiet.
+//
+// Every row and its width against the 232 px content budget:
+//     10  SESSIONS               2  (left)   8 x 6 x 2 = 96
+//     56  waiting...             3           10 x 6 x 3 = 180
+//    104  In Claude Code, run    1           19 x 6 x 1 = 114
+//    120  /clawd:setup a1b2      2           17 x 6 x 2 = 204
+//    176  or open                1            7 x 6 x 1 = 42
+//    192  <ip>                   2           15 x 6 x 2 = 180
+static void drawStale(const Settings& s, bool error) {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
   drawLeft(gfx, 8, 10, "SESSIONS", 2, C_WHITE);
   gfx->fillRect(8, 34, 224, 2, C_BARBG);
+
   // "sender error", not "daemon error": what people install is the clawd plugin.
-  // Same character count, so the centred layout is unchanged.
-  gfxDrawCentered(error ? "sender error" : "waiting...", 112, 2, C_DIM);
+  gfxDrawCentered(error ? "sender error" : "waiting...", 56, 3, C_DIM);
+
+  char code[8];
+  fmtDeviceCode(s.hostname.c_str(), code, sizeof(code));
+  char cmd[40];
+  snprintf(cmd, sizeof(cmd), "/clawd:setup %s", code);
+  gfxDrawCentered("In Claude Code, run", 104, 1, C_DIM);
+  // gfxFitSize, not gfxFitSizeMin: this is the line the screen exists for now, so
+  // 6x8 beats dropping it. A default name lands at size 2.
+  gfxDrawCentered(cmd, 120, gfxFitSize(cmd, 232, 2), C_WHITE);
+
+  gfx->fillRect(8, 156, 224, 2, C_BARBG);
+
+  // The web UI, for anyone who would rather look than type — and the IP rather
+  // than <host>.local, unlike the commissioning screen. Two reasons: whoever is
+  // reading a stale screen is troubleshooting, and mDNS is exactly the thing that
+  // is blocked on the networks where troubleshooting happens; and netIP() is read
+  // live, so this line is correct even when the sender's cached address is the
+  // thing that went wrong.
+  String ip = netIP();
+  if (ip.length() && ip != "0.0.0.0") {
+    gfxDrawCentered("or open", 176, 1, C_DIM);
+    gfxDrawCentered(ip.c_str(), 192, gfxFitSize(ip.c_str(), 232, 2), C_UGREEN);
+  }
 }
 
 // ---- DisplayMode ----------------------------------------------------------
@@ -233,9 +287,8 @@ void SessionsMode::service(const Settings& s) {
   if (s.usage.usageUrl.length() >= 8) usageService(s);
 
   const UsageData& u = usageGet();
-  uint32_t staleMs = (uint32_t)s.usage.pollSec * 1000UL * 2UL + USAGE_STALE_GRACE_MS;
 
-  if (usageFresh(staleMs)) {
+  if (usageFresh(usageStaleMs(s))) {
     if (showedStale_) { showedStale_ = false; needRender_ = true; }
     uint32_t fp = boardFingerprint(u);
     if (fp != renderedFp_) needRender_ = true;
@@ -246,6 +299,6 @@ void SessionsMode::service(const Settings& s) {
     // that, which is the half of the message worth reading.
     showedStale_ = true;
     staleError_  = u.error;
-    drawStale(u.error);
+    drawStale(s, u.error);
   }
 }

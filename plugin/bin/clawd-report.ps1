@@ -23,7 +23,8 @@ $Dir      = Join-Path $HOME '.clawd'
 $SDir     = Join-Path $Dir 'sessions'
 $Cfg      = Join-Path $Dir 'config'
 $EXPIRE   = 900   # s — a state file untouched this long belongs to a dead session
-$THROTTLE = 10    # s — minimum gap between pushes, so a burst of tools is one POST
+$MAXQUIET = 300   # s — resend an unchanged board no more often than this
+$REFIND   = 600   # s — minimum gap between attempts to relocate a moved unit
 $MAXROWS  = 6     # rows the 240x240 board renders; ns carries the true count
 $NAMELEN  = 12    # what the device renders at text size 2
 
@@ -39,8 +40,9 @@ if (Test-Path $Cfg) {
     if ($i -gt 0) { $conf[$l.Substring(0, $i)] = $l.Substring($i + 1) }
   }
 }
-$ip = $conf['ip']
-if (-not $ip) { exit 0 }   # not paired; nothing to do
+$ip   = $conf['ip']
+$unit = $conf['host']
+if (-not $ip -and -not $unit) { exit 0 }   # not paired; nothing to do
 
 $raw = [Console]::In.ReadToEnd()
 
@@ -126,30 +128,88 @@ $parts  = @()
 foreach ($r in $shown) { $parts += '{"n":"' + $r.n + '","s":"' + $r.s + '","t":' + $r.t + '}' }
 $body = '{"sess":[' + ($parts -join ',') + '],"ns":' + $rows.Count + '}'
 
-# ---- push, throttled -------------------------------------------------------
+# ---- send, when there is something to say ----------------------------------
+# Push on CHANGE, not on a timer. The old rule was "at most one POST every 10 s";
+# it throttled a burst of tool calls correctly and also swallowed the transition
+# that matters most — finish a turn within 10 s of a tool call and the Stop
+# event's "waiting for you" never reached the glass, leaving the board on
+# "working" until something else happened to fire a hook. Comparing the body
+# sends every real change at once and sends nothing while the board is identical:
+# fewer POSTs, and a board that is never wrong. push.stamp holds the body last
+# confirmed on the device, so its content and its mtime answer both questions.
 $stamp = Join-Path $Dir 'push.stamp'
+$last  = ''
+$quiet = [int]::MaxValue
 if (Test-Path $stamp) {
-  $age = $now - (Get-FileEpoch (Get-Item $stamp))
-  if ($age -lt $THROTTLE) { exit 0 }
+  $last  = [System.IO.File]::ReadAllText($stamp)
+  $quiet = $now - (Get-FileEpoch (Get-Item $stamp))
 }
-[System.IO.File]::WriteAllText($stamp, 'x')
+if ($body -eq $last -and $quiet -lt $MAXQUIET) { exit 0 }
 
-# Probe first: a POST to a device that is not there burns the whole timeout
-# instead of taking the instant refusal (measured 1,028 ms vs 1-14 ms).
-$h = $ip; $port = 80
-$c = $ip.LastIndexOf(':')
-if ($c -gt 0 -and $ip.Substring($c + 1) -match '^\d+$') { $h = $ip.Substring(0, $c); $port = [int]$ip.Substring($c + 1) }
-try {
-  $t = New-Object System.Net.Sockets.TcpClient
-  $ar = $t.BeginConnect($h, $port, $null, $null)
-  $open = $false
-  if ($ar.AsyncWaitHandle.WaitOne(300)) { $t.EndConnect($ar); $open = $true }
-  $t.Close()
-  if (-not $open) { exit 0 }
-} catch { exit 0 }
+# A POST to a device that is not there burns the whole timeout instead of taking
+# the instant refusal (measured 1,028 ms vs 1-14 ms), so probe the port first.
+function Send-Board {
+  param([string]$Addr, [string]$Json)
+  if (-not $Addr) { return $false }
+  $h = $Addr; $port = 80
+  $c = $Addr.LastIndexOf(':')
+  if ($c -gt 0 -and $Addr.Substring($c + 1) -match '^\d+$') { $h = $Addr.Substring(0, $c); $port = [int]$Addr.Substring($c + 1) }
+  try {
+    $t = New-Object System.Net.Sockets.TcpClient
+    $ar = $t.BeginConnect($h, $port, $null, $null)
+    $open = $false
+    if ($ar.AsyncWaitHandle.WaitOne(300)) { $t.EndConnect($ar); $open = $true }
+    $t.Close()
+    if (-not $open) { return $false }
+  } catch { return $false }
+  try {
+    Invoke-RestMethod -Uri "http://$Addr/api/usage" -Method Post -Body $Json `
+      -ContentType 'application/json' -TimeoutSec 2 -ErrorAction Stop | Out-Null
+    return $true
+  } catch { return $false }
+}
 
-try {
-  Invoke-RestMethod -Uri "http://$ip/api/usage" -Method Post -Body $body `
-    -ContentType 'application/json' -TimeoutSec 2 -ErrorAction Stop | Out-Null
-} catch {}
+$sent = Send-Board $ip $body
+
+# The address in the config is a DHCP lease on a device that roams between
+# networks, so "the stored IP stopped answering" is an ordinary Tuesday rather
+# than a fault — and it used to end the pairing permanently: every later hook
+# probed the same dead address and gave up, so the panel said "waiting..." for
+# good and only re-running setup by hand fixed it. Ask the finder where the unit
+# went, and remember the answer.
+#
+# Throttled hard, and only at a turn boundary. The lookup costs a few seconds; a
+# genuinely absent device would otherwise pay that on every hook, and a hook fires
+# per tool call. UserPromptSubmit, SessionStart and Stop are the moments a short
+# pause is invisible anyway, and they are the moments a moved unit is worth
+# chasing — nobody is watching the panel mid-tool-loop.
+$boundary = @('UserPromptSubmit', 'SessionStart', 'Stop') -contains $evt
+if (-not $sent -and $unit -and $boundary) {
+  $rstamp = Join-Path $Dir 'resolve.stamp'
+  $rquiet = [int]::MaxValue
+  if (Test-Path $rstamp) { $rquiet = $now - (Get-FileEpoch (Get-Item $rstamp)) }
+  if ($rquiet -ge $REFIND) {
+    [System.IO.File]::WriteAllText($rstamp, 'x')
+    $finder = Join-Path $PSScriptRoot 'clawd-find.ps1'
+    $found = ''
+    try {
+      $found = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $finder -Resolve $unit 2>$null | Select-Object -First 1)
+    } catch {}
+    if ($found) { $found = $found.Trim() }
+    if ($found -and $found -ne $ip) {
+      $conf['ip'] = $found
+      # Rewrite every key, so a hand-added one survives. WriteAllText with no
+      # encoding argument is UTF-8 with no BOM, which is what the sh reporter's
+      # sed expects — a BOM renames the first key of a key=value file.
+      $lines = @()
+      foreach ($k in $conf.Keys) { $lines += "$k=$($conf[$k])" }
+      [System.IO.File]::WriteAllText($Cfg, ($lines -join "`n") + "`n")
+      $sent = Send-Board $found $body
+    }
+  }
+}
+
+# Only a confirmed delivery updates the baseline. Recording an attempt would make
+# the next hook think the device already has a board it never received.
+if ($sent) { [System.IO.File]::WriteAllText($stamp, $body) }
 exit 0

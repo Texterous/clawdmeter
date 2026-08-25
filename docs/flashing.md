@@ -41,14 +41,19 @@ two independent ceilings and the lower one binds:
 | CI gate | **520,000** | `.github/workflows/build.yml` stats `firmware.bin` and **fails the build** above this. Self-imposed, and it is the one you hit first. |
 | Stock OTA ceiling | **524,288** | 512 KiB. GeekMagic's stock updater refuses an upload much over this, so an image above it cannot be installed in one step on a factory-fresh unit at all. |
 
-Measured sizes, firmware 0.3.0, all four `pio run` targets:
+Measured sizes, firmware 0.3.1, all four `pio run` targets, built from a clean
+checkout (no `provision_local.h`, which is what CI does):
 
 | env | image | bytes | headroom to CI gate | headroom to stock ceiling |
 |---|---|--:|--:|--:|
-| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **517,680** | 2,320 | 6,608 |
-| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **517,632** | 2,368 | 6,656 |
-| `ultra` | `clawdmeter-ultra.bin` | 633,408 | — | over both |
-| `loader` | `rollback-loader.bin` | 317,424 | — | — |
+| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **518,736** | 1,264 | 5,552 |
+| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **518,736** | 1,264 | 5,552 |
+| `ultra` | `clawdmeter-ultra.bin` | 634,432 | — | over both |
+| `loader` | `rollback-loader.bin` | 315,920 | — | — |
+
+With `provision_local.h` present, `ultra_slim` is 48 B larger — the two
+baked credential literals (518,784). `ultra_giveaway` never varies, because `-D NO_PROVISION`
+keeps the header out whether or not it exists.
 
 `ultra_giveaway` is the image that goes to recipients, and it is always the smaller
 of the two gated builds — it is `ultra_slim` with the baked-credential string
@@ -61,20 +66,30 @@ it unspent. Being installable in one web upload, with no tooling on the recipien
 side, *is* the distribution mechanism; raising the gate spends the only thing that
 makes that true.
 
-**`dist/` is not these images.** It holds a 0.2.x build (517,024 B,
-sha256 `449d0db0…`, versus `17e6a8ab…` for a fresh `ultra_slim`) that predates the
-onboarding work: no commissioning screen, the old `Clawdmeter-Setup` AP name, the
-dead `/agent/install.*` routes, and an `/api/export` that hands WiFi passwords to
-any unauthenticated caller. Refresh it before any batch run:
+**`dist/` holds these images** as of 0.3.1, rebuilt from a clean checkout and
+verified to contain no SSID or password string. It is worth re-checking rather than
+assuming: for most of this project's life `dist/` held a 0.2.x build that predated
+the onboarding work — no commissioning screen, the old `Clawdmeter-Setup` AP name,
+the dead `/agent/install.*` routes, an `/api/export` that handed WiFi passwords to
+any unauthenticated caller, **and the home SSID and password baked in as plain
+strings**, because it had been built with `provision_local.h` in place. `dist/` is
+gitignored so none of that was ever published, but flashing a batch from it would
+have shipped one household's WiFi password to thirty strangers.
+
+So: rebuild it, with the provisioning header moved out of the tree, and grep the
+result before trusting it.
 
 ```bash
 cd firmware
+mv src/provision_local.h /tmp/ 2>/dev/null   # only ultra_giveaway is safe without this
 pio run -e ultra_slim -e ultra -e ultra_giveaway -e loader
+mv /tmp/provision_local.h src/ 2>/dev/null
 mkdir -p ../dist
 cp .pio/build/ultra_slim/firmware.bin      ../dist/clawdmeter-ultra-slim.bin
 cp .pio/build/ultra/firmware.bin           ../dist/clawdmeter-ultra.bin
 cp .pio/build/ultra_giveaway/firmware.bin  ../dist/clawdmeter-ultra-giveaway.bin
 cp .pio/build/loader/firmware.bin          ../dist/rollback-loader.bin
+for f in ../dist/*.bin; do echo "$f $(strings "$f" | grep -c 'De Boomhut')"; done   # all zero
 ```
 
 `provision/flash.ps1` refuses to upload an image whose `FW_VERSION` string does not
@@ -114,7 +129,7 @@ curl -F "firmware=@clawdmeter-ultra.bin" http://<device>/update
 
 Neither ceiling above applies once Clawdmeter is running — they are stock's and
 CI's, not the board's. What applies instead is free flash *above* the running
-sketch: with the 517,680 B slim image up, `ESP.getFreeSketchSpace()` is 0x300000
+sketch: with the 518,736 B slim image up, `ESP.getFreeSketchSpace()` is 0x300000
 (the LittleFS start at `_FS_start = 0x40500000`) minus the sketch rounded up to a
 sector, so `/update` accepts about **2.5 MB**. The linker script caps any image
 this project can build at `irom0_0_seg` = 1,044,464 B, well under that, so **every

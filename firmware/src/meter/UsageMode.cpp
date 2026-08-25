@@ -275,7 +275,7 @@ void UsageMode::service(const Settings& s) {
   }
 
   // Considered stale after ~2 missed polls (plus a grace) — then show the animation.
-  uint32_t staleMs = (uint32_t)s.usage.pollSec * 1000UL * 2UL + USAGE_STALE_GRACE_MS;
+  uint32_t staleMs = usageStaleMs(s);
   // && usageValid: a board-only sender stamps lastOkMs on every push, so without
   // this the meters would read a confident 0% as live data.
   bool fresh = usageFresh(staleMs) && u.usageValid;

@@ -1,9 +1,13 @@
 # Clawdmeter
 
 Firmware that turns a €13 GeekMagic **SmallTV-Ultra** into a desk display for your
-Claude Code usage, with a web UI in Texterous' design language. Built to be handed
-out at a hackathon: one screen, five settings pages, and a provisioning path that
-scales to a boxful of units.
+live Claude Code sessions, with a web UI in Texterous' design language. Built to be
+handed out at a hackathon: one screen, five settings pages, and a provisioning path
+that scales to a boxful of units.
+
+Plug it in, join its hotspot, pick your WiFi. Install the plugin, run
+`/clawd:setup` and type the four characters on the glass. Your sessions appear.
+That is the whole of it — no Python, no daemon, no account, no card in the box.
 
 <!-- TODO: photo of a unit showing the meter, once the batch arrives -->
 
@@ -13,8 +17,8 @@ Status · Wifi · Display · Clawdmeter · System
 
 ## What it does
 
-A Claude Code plugin on your machine reads your rate-limit state and POSTs it to
-the device — [`plugin/`](plugin/) in this repository:
+A Claude Code plugin on your machine works out what each of your sessions is doing
+and POSTs it to the device — [`plugin/`](plugin/) in this repository:
 
 ```bash
 claude plugin marketplace add Texterous/clawdmeter
@@ -26,12 +30,16 @@ credential, no address to look up. There is no Clawdmeter agent binary; see
 [agent/](agent/) for why, and for why the Python daemon is no longer the
 recommended sender. There are two screens, picked in the web UI:
 
-- **Usage meters** — the 5-hour and 7-day windows, the countdown to each reset, and
-  an animated mascot whose mood tracks your burn rate.
-- **Session board** — one row per live Claude session on your machine: a state dot,
-  the session name, and how long it has been that way. Green is working, amber is
-  waiting for you, red is stuck on a permission prompt. Six rows fit; the header
-  reports the true count when there are more.
+- **Session board** *(the default, and what the plugin fills)* — one row per live
+  Claude session on your machine: a state dot, the session name, and how long it
+  has been that way. Green is working, amber is waiting for you, red is stuck on a
+  permission prompt, and the footer tallies them in the same three colours. Six
+  rows fit; the header reports the true count when there are more.
+- **Usage meters** *(terminal only)* — the 5-hour and 7-day windows, the countdown
+  to each reset, and an animated mascot whose mood tracks your burn rate. These
+  need `rate_limits`, which Claude Code hands to a `statusLine` and nothing else —
+  and a `statusLine` never runs in the desktop app. Switch to this screen without
+  one and it has nothing to draw.
 
 That is the whole feature set, on purpose.
 
@@ -58,10 +66,10 @@ Other SmallTV variants are not supported. This is one firmware for one board.
 ## The images, and why
 
 ```
-pio run -e ultra_slim      # 517,680 B · no TLS · installs on a factory-fresh unit
-pio run -e ultra           # 633,408 B · adds HTTPS + GitHub self-update
-pio run -e loader          # 317,424 B · two-step install fallback
-pio run -e ultra_giveaway  # 517,632 B · ultra_slim with provisioning compiled out
+pio run -e ultra_slim      # 518,736 B · no TLS · installs on a factory-fresh unit
+pio run -e ultra           # 634,432 B · adds HTTPS + GitHub self-update
+pio run -e loader          # 315,920 B · two-step install fallback
+pio run -e ultra_giveaway  # 518,736 B · ultra_slim with provisioning compiled out
 ```
 
 The stock Ultra firmware reserves most of the flash for image storage, so its OTA

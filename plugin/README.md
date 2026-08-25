@@ -50,15 +50,28 @@ that reason.
 - **Find a unit outside its own /24.** On a /16 or /20 the sweep can miss it; the
   device prints its IP on screen, so pass that to `/clawd:setup` instead.
 - **Show the usage meters.** See above.
-- **Update while Claude Code is closed.** Hooks fire on activity. Setup widens the
-  device's stale window to 30 minutes so ordinary thinking time does not trip it.
+- **Update while Claude Code is closed.** Hooks fire on activity. The device allows
+  30 minutes of quiet before it says it has lost contact, so ordinary thinking time
+  never trips it.
+
+## When the device moves
+
+Its address is a DHCP lease, and the unit roams between networks. When the stored
+one stops answering, the hook asks `clawd-find` where the unit went — `<host>.local`
+first, then a sweep of this machine's /24 — and rewrites `ip` in the config. That
+retry is throttled to once every five minutes, so an absent device costs a probe
+and nothing more.
+
+If it cannot be found at all, the panel falls to `waiting...` and prints the
+command and the code needed to pair again. That is the only manual step left.
 
 ## Files it touches
 
 | Path | What |
 |---|---|
-| `~/.clawd/config` | the device address and code |
+| `~/.clawd/config` | the device address, name and code |
 | `~/.clawd/sessions/*` | one flat line per session: `name\|state\|since` |
+| `~/.clawd/push.stamp` | the board last confirmed on the device |
 
 **Nothing in `~/.claude/`.** The hooks ship inside the plugin and reference it
 directly, so updating or uninstalling needs no follow-up. `/clawd:remove` deletes
@@ -66,6 +79,11 @@ the one directory.
 
 Stale entries expire after 15 minutes, so a session that dies without a
 `SessionEnd` drops off the board by itself.
+
+A POST goes out when the board actually **changes**, not on a timer, plus one
+every five minutes to keep the device's freshness clock ticking. That is what
+makes "you stopped and it still says working" impossible: the state transition is
+never the one a throttle drops.
 
 ## Checking it from outside
 

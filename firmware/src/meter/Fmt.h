@@ -14,3 +14,14 @@ inline void fmtDuration(int mins, char* out, size_t n, const char* zero = "now")
   else if (h > 0) snprintf(out, n, "%dh %02dm", h, m);
   else            snprintf(out, n, "%dm", m);
 }
+
+// The characters /clawd:setup asks for: the tail of the hostname. Every default
+// name ends in the 4-hex chip suffix (Settings::setDefaults), which is what makes
+// one unit tellable from thirty on the same table, and it is what the plugin's
+// finder matches on — so the screen prints exactly that string rather than asking
+// anyone to count backwards through "clawd-a1b2.local". A hand-set name shorter
+// than four characters yields the whole of it, which is still the right answer.
+inline void fmtDeviceCode(const char* host, char* out, size_t n) {
+  size_t len = host ? strlen(host) : 0;
+  strlcpy(out, len > 4 ? host + len - 4 : (host ? host : ""), n);
+}

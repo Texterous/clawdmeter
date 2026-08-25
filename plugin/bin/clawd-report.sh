@@ -18,13 +18,15 @@ DIR="$HOME/.clawd"
 SDIR="$DIR/sessions"
 CFG="$DIR/config"
 EXPIRE=900     # s — a state file untouched this long belongs to a dead session
-THROTTLE=10    # s — minimum gap between pushes, so a burst of tools is one POST
+MAXQUIET=300   # s — resend an unchanged board no more often than this
+REFIND=600     # s — minimum gap between attempts to relocate a moved unit
 MAXROWS=6      # rows the 240x240 board renders; ns carries the true count
 NAMELEN=12     # what the device renders at text size 2
 
 [ -f "$CFG" ] || exit 0
 IP=$(sed -n 's/^ip=//p' "$CFG" | head -1)
-[ -n "$IP" ] || exit 0          # not paired; nothing to do
+UNIT=$(sed -n 's/^host=//p' "$CFG" | head -1)
+[ -n "$IP" ] || [ -n "$UNIT" ] || exit 0     # not paired; nothing to do
 
 RAW=$(cat)
 
@@ -108,17 +110,76 @@ SESS=$(printf '%s' "$ROWS" | grep -v '^[[:space:]]*$' | sort -k1,1n -k2,2n \
        | head -"$MAXROWS" | sed 's/^[0-9]* [0-9]* //' | paste -sd, - 2>/dev/null)
 BODY="{\"sess\":[${SESS}],\"ns\":${LIVE}}"
 
-# ---- push, throttled -------------------------------------------------------
+# ---- send, when there is something to say ----------------------------------
+# Push on CHANGE, not on a timer. The old rule was "at most one POST every 10 s";
+# it throttled a burst of tool calls correctly and also swallowed the transition
+# that matters most — finish a turn within 10 s of a tool call and the Stop
+# event's "waiting for you" never reached the glass, leaving the board on
+# "working" until something else happened to fire a hook. Comparing the body
+# sends every real change at once and sends nothing while the board is identical:
+# fewer POSTs, and a board that is never wrong. push.stamp holds the body last
+# confirmed on the device, so its content and its mtime answer both questions.
 STAMP="$DIR/push.stamp"
 if [ -f "$STAMP" ]; then
+  LAST=$(cat "$STAMP" 2>/dev/null)
   SMT=$(stat -c %Y "$STAMP" 2>/dev/null || stat -f %m "$STAMP" 2>/dev/null)
-  [ -n "$SMT" ] && [ $(( NOW - SMT )) -lt "$THROTTLE" ] && exit 0
+  if [ "$LAST" = "$BODY" ] && [ -n "$SMT" ] && [ $(( NOW - SMT )) -lt "$MAXQUIET" ]; then
+    exit 0
+  fi
 fi
-: > "$STAMP"
 
 # --connect-timeout separately from -m: an absent device otherwise burns the whole
 # -m budget instead of taking the instant refusal.
-curl -s --connect-timeout 0.3 -m 2 --noproxy '*' -o /dev/null -X POST \
-  -H 'Content-Type: application/json' -d "$BODY" \
-  "http://${IP}/api/usage" 2>/dev/null
+send() {
+  [ -n "$1" ] || return 1
+  curl -s --connect-timeout 0.3 -m 2 --noproxy '*' -o /dev/null -f -X POST \
+    -H 'Content-Type: application/json' -d "$BODY" \
+    "http://$1/api/usage" 2>/dev/null
+}
+
+SENT=0
+send "$IP" && SENT=1
+
+# The address in the config is a DHCP lease on a device that roams between
+# networks, so "the stored IP stopped answering" is an ordinary Tuesday rather
+# than a fault — and it used to end the pairing permanently: every later hook
+# probed the same dead address and gave up, so the panel said "waiting..." for
+# good and only re-running setup by hand fixed it. Ask the finder where the unit
+# went, and remember the answer.
+#
+# Throttled hard, and only at a turn boundary. The lookup costs a few seconds; a
+# genuinely absent device would otherwise pay that on every hook, and a hook fires
+# per tool call. UserPromptSubmit, SessionStart and Stop are the moments a short
+# pause is invisible anyway, and they are the moments a moved unit is worth
+# chasing — nobody is watching the panel mid-tool-loop.
+BOUNDARY=0
+case "$EVT" in UserPromptSubmit|SessionStart|Stop) BOUNDARY=1 ;; esac
+if [ "$SENT" -eq 0 ] && [ -n "$UNIT" ] && [ "$BOUNDARY" -eq 1 ]; then
+  RSTAMP="$DIR/resolve.stamp"
+  RQ=$REFIND
+  if [ -f "$RSTAMP" ]; then
+    RMT=$(stat -c %Y "$RSTAMP" 2>/dev/null || stat -f %m "$RSTAMP" 2>/dev/null)
+    [ -n "$RMT" ] && RQ=$(( NOW - RMT ))
+  fi
+  if [ "$RQ" -ge "$REFIND" ]; then
+    : > "$RSTAMP"
+    # Pass the /24 the unit was last seen on: the right subnet in the common case
+    # (same network, new lease) and the only usable one on a box where prefix
+    # detection comes up empty.
+    HINT=$(printf '%s' "$IP" | cut -d: -f1 | cut -d. -f1-3)
+    FOUND=$(sh "$(dirname "$0")/clawd-find.sh" --resolve "$UNIT" "$HINT" 2>/dev/null | head -1)
+    if [ -n "$FOUND" ] && [ "$FOUND" != "$IP" ]; then
+      # Rewrite the ip= line in place, keeping every other key — including one
+      # somebody added by hand. A temp file plus mv, so a failure half way through
+      # cannot leave a truncated config behind.
+      { sed '/^ip=/d' "$CFG"; printf 'ip=%s\n' "$FOUND"; } > "$CFG.new" 2>/dev/null \
+        && mv "$CFG.new" "$CFG" 2>/dev/null
+      send "$FOUND" && SENT=1
+    fi
+  fi
+fi
+
+# Only a confirmed delivery updates the baseline. Recording an attempt would make
+# the next hook think the device already has a board it never received.
+[ "$SENT" -eq 1 ] && printf '%s' "$BODY" > "$STAMP"
 exit 0

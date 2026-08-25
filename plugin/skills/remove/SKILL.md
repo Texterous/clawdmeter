@@ -23,8 +23,9 @@ claude plugin uninstall clawd@clawdmeter
 ## 2. Tell them what the device will do
 
 It keeps its WiFi credentials and its last board on screen, then falls to
-"waiting..." once that reading goes stale — about 30 minutes at the `pollSec`
-value setup writes. That is the device saying nothing is feeding it, not a fault.
+"waiting..." once that reading goes stale — 30 minutes on a pushed unit. That
+screen prints the unit's code and the pairing command, so it is the device saying
+nothing is feeding it, not a fault.
 
 To pair a different machine, run `/clawd:setup` there.
 

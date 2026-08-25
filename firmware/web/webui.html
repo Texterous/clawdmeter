@@ -380,10 +380,11 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 <section id="meter" class="tab">
   <div class="card">
     <h2 class="eyebrow">Start here</h2>
-    <p class="note">This device shows how much of your Claude Code usage you have spent. It
-      cannot read that by itself: a Claude Code plugin on your computer reads it and sends it
-      here. Two commands and a four-character code. You need the machine you run Claude Code
-      on — a phone cannot do it.</p>
+    <p class="note">This device shows the Claude Code sessions running on your computer, and
+      what each one is doing — working, waiting for you, or stuck on a permission prompt. It
+      cannot see any of that by itself: a Claude Code plugin sends it here. Two commands and a
+      four-character code. You need the machine you run Claude Code on — a phone cannot do
+      it.</p>
     <p class="note" id="apFirst" style="display:none"><b>Do the Wifi tab first.</b> The
       plugin looks for this device on your own network, which it has not joined yet.</p>
     <ol class="note">
@@ -397,8 +398,9 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
           redo when your router hands it a different one.</small>
       </li>
     </ol>
-    <p class="note">Numbers appear here and on the device within about thirty seconds of your
-      next message to Claude.</p>
+    <p class="note">Your sessions appear here and on the device with your next message to
+      Claude — after one restart of Claude Code, which is when the plugin's hooks start
+      firing.</p>
     <details>
       <summary>Nothing showed up</summary>
       <small class="hint">Work down these in order — the first two are almost always it:</small>
@@ -412,13 +414,13 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
           can sit outside that, so give <code>/clawd:setup</code> the address below instead of
           the code.
           <div class="cmd"><code id="cmdAddr"></code><button class="btn sec" data-copy="cmdAddr">Copy</button></div></li>
-        <li><b>Claude subscription.</b> The usage figures only exist on a Claude Pro or Max
-          plan. On an API-key setup there is nothing for the plugin to read and this screen
-          stays as it is — working as intended, not broken.</li>
+        <li><b>Just installed the plugin?</b> Its hooks only start firing after Claude Code
+          restarts. Restart once and send a message — the most common reason a correct setup
+          shows nothing.</li>
       </ol>
     </details>
     <small class="hint">The plugin talks to this one unit and nothing else, so it cannot put
-      your usage on somebody else's screen. Source:
+      your sessions on somebody else's screen. Source:
       <a id="repoLink2" href="#" target="_blank" rel="noopener">the repository</a>.</small>
   </div>
 
@@ -442,13 +444,12 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
     <h2 class="eyebrow">Options</h2>
     <label for="mode">Screen</label>
     <select id="mode">
-      <option value="usage">Usage meters</option>
       <option value="sessions">Session board</option>
+      <option value="usage">Usage meters (terminal only)</option>
     </select>
-    <small class="hint">The session board lists every Claude session running on your
-      machine and what each one is doing — working, waiting for you, or stuck on a
-      permission prompt. On macOS and Linux the plugin needs <code>jq</code> to read
-      them; without it this screen says so rather than showing a blank board.</small>
+    <small class="hint">The <b>session board</b> is what units ship on and what the plugin
+      fills. The <b>usage meters</b> need 5-hour figures Claude Code only hands to a terminal
+      status line, so on the desktop app that screen stays empty.</small>
     <div class="chk"><input type="checkbox" id="showMascot"><label for="showMascot">Show the animated mascot</label></div>
     <small class="hint">Usage meters only; the session board ignores it. The mascot appears
       when nothing has arrived for a while — your laptop asleep, usually. Off keeps the last
@@ -461,6 +462,8 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
       TLS, which is what keeps it small enough to install on a factory-fresh unit.</small>
     <label for="pollSec">Pull interval (seconds)</label>
     <input type="number" id="pollSec" min="10" max="3600">
+    <small class="hint">Only used with a pull URL. Pushed units allow 30 minutes of quiet
+      whatever this says.</small>
     <div class="btns"><button class="btn" id="saveMeter">Save Clawdmeter settings</button></div>
   </div>
 </section>
@@ -655,17 +658,28 @@ function renderMeter(m, ap) {
   }
   if (!m || !m.valid) {
     // The most-seen screen at an event, so it says what to do rather than 0%.
-    box.innerHTML = `<p class="note"><b>Waiting for the sender.</b> Nothing has been pushed
-      to this device yet. The <b>Clawdmeter</b> tab has the five steps that set it up.</p>`;
+    box.innerHTML = `<p class="note"><b>Waiting for the plugin.</b> Nothing has been sent
+      to this device yet. The <b>Clawdmeter</b> tab has the two steps that set it up.</p>`;
     return;
   }
-  const stale = m.ageSec > 300;
+  // 30 minutes, matching the device's own PUSH_STALE_MS. At the old five it called
+  // a reading stale while the panel was still drawing it.
+  const stale = m.ageSec > 1800;
+  const age = `<div class="kv"><span>Last update</span><b>${fmtAgo(m.ageSec)}
+       ${stale ? '<span class="pill bad">stale</span>' : '<span class="pill ok">live</span>'}</b></div>`;
+  // A board-only payload — what the plugin sends — carries no rate-limit figures at
+  // all. Drawing the gauges anyway put a confident 0% on the portal's first card for
+  // the DEFAULT screen: exactly the lie the panel's own footer avoids.
+  if (m.boardValid && !m.usageValid) {
+    box.innerHTML =
+      `<div class="kv"><span>Live sessions</span><b>${m.live}</b></div>
+       <div class="kv"><span>Shown on screen</span><b>${m.rows}</b></div>` + age;
+    return;
+  }
   box.innerHTML =
     gauge('5-hour window', m.sessionPct, m.sessionResetMin) +
     gauge('7-day window', m.weeklyPct, m.weeklyResetMin) +
-    `<div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>
-     <div class="kv"><span>Last update</span><b>${fmtAgo(m.ageSec)}
-       ${stale ? '<span class="pill bad">stale</span>' : '<span class="pill ok">live</span>'}</b></div>`;
+    `<div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>` + age;
 }
 
 function renderStatus(s) {
@@ -913,14 +927,13 @@ function renderCmds() {
              : (location.host || dotLocal);
   $('apFirst').style.display = ap ? '' : 'none';
   $('mdnsWarn').style.display = ST.mdns === 'taken' ? '' : 'none';
-  // The code is the last four characters of the hostname (clawd-<4hex>), which is
-  // also what the commissioning screen prints. Deriving it here rather than asking
-  // the reader to squint at the glass means the two can never disagree.
-  const unit = (ST.host || '');
-  const code = unit.includes('-') ? unit.split('-').pop() : unit;
+  // /api/status reports the code the device itself prints, rather than this page
+  // re-deriving it from the hostname — two derivations could disagree on a
+  // hand-set name, and the whole value of the code is that it matches the glass.
+  const code = ST.code || '';
   $('cmdInstall').textContent =
     'claude plugin marketplace add Texterous/clawdmeter && claude plugin install clawd@clawdmeter';
-  $('cmdCode').textContent = code || unit || '(see the device screen)';
+  $('cmdCode').textContent = code || '(see the device screen)';
   // The escape hatch for a network wider than the /24 the plugin sweeps. Prefer the
   // name, fall back to the IP when another responder on this link has taken it.
   $('cmdAddr').textContent = `/clawd:setup ${host}`;
@@ -931,14 +944,25 @@ function renderCmds() {
   $('flashDoc').href = repo + '/blob/main/docs/flash-something-else.md';
 }
 function renderPayload(m) {
-  $('lastPayload').innerHTML = (m && m.valid)
-    ? `<div class="kv"><span>5-hour</span><b>${m.sessionPct}% · resets in ${fmtReset(m.sessionResetMin)}</b></div>
-       <div class="kv"><span>7-day</span><b>${m.weeklyPct}% · resets in ${fmtReset(m.weeklyResetMin)}</b></div>
-       <div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>
-       <div class="kv"><span>Received</span><b>${fmtAgo(m.ageSec)}</b></div>
-       <div class="kv"><span>Last fetch</span><b>${m.error ? '<span class="pill bad">error</span>' : '<span class="pill ok">ok</span>'}</b></div>`
-    : `<p class="note">Nothing received yet. Work through the steps above — the numbers
-        appear here as soon as the first push lands.</p>`;
+  if (!m || !m.valid) {
+    $('lastPayload').innerHTML = `<p class="note">Nothing received yet. Work through the
+      steps above — this fills in as soon as the first payload lands.</p>`;
+    return;
+  }
+  // Report what actually arrived: usage rows omitted rather than zeroed for a
+  // board-only sender, same as the panel's footer and the Status card.
+  const rows = [];
+  if (m.usageValid) {
+    rows.push(['5-hour', `${m.sessionPct}% · resets in ${fmtReset(m.sessionResetMin)}`]);
+    rows.push(['7-day', `${m.weeklyPct}% · resets in ${fmtReset(m.weeklyResetMin)}`]);
+    rows.push(['Status', esc(m.status || '—')]);
+  }
+  if (m.boardValid) rows.push(['Sessions', `${m.rows} shown · ${m.live} live`]);
+  rows.push(['Received', fmtAgo(m.ageSec)]);
+  rows.push(['Last fetch', m.error ? '<span class="pill bad">error</span>'
+                                   : '<span class="pill ok">ok</span>']);
+  $('lastPayload').innerHTML =
+    rows.map(([k, v]) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`).join('');
 }
 $('refreshBtn').onclick = async e => {
   e.target.disabled = true;

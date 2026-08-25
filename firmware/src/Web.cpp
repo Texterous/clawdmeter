@@ -17,6 +17,7 @@
 #include "Gfx.h"
 #include "OtaUpdate.h"
 #include "UsageClient.h"
+#include "meter/Fmt.h"
 #include "Clock.h"
 
 // Defined in main.cpp — re-init the mode + force a repaint after a config change.
@@ -97,6 +98,11 @@ static void handleStatus() {
   o["ssid"] = netSSID();
   o["ip"] = netIP();
   o["host"] = S->hostname;
+  // The argument /clawd:setup takes, computed here rather than re-derived by
+  // every reader. The portal and the commissioning screen used to work it out
+  // separately from the hostname and could disagree on a hand-set name; now the
+  // device is the single source and the plugin can match on it exactly.
+  { char code[8]; fmtDeviceCode(S->hostname.c_str(), code, sizeof(code)); o["code"] = code; }
   // Has anything ever been pushed here? The portal opens on the Clawdmeter tab
   // when the answer is no, because setting up the sender is then the only step
   // left and the device cannot do it for them.

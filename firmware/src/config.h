@@ -14,7 +14,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "clawdmeter"
-#define FW_VERSION  "0.3.0"
+#define FW_VERSION  "0.3.1"
 
 #define REPO_URL    "https://github.com/Texterous/clawdmeter"
 #define REPO_OWNER  "Texterous"
@@ -136,9 +136,11 @@
 #define MODE_USAGE    1
 #define MODE_SESSIONS 2
 // Sessions, not usage: the board is the screen the project wants on a desk out
-// of the box. Note the trade — a sessions-mode unit whose sender cannot build a
-// board shows "UPDATE YOUR SENDER" rather than something useful, and on macOS
-// and Linux that needs jq. /clawd:setup warns when it cannot produce one.
+// of the box, and the only one the clawd plugin can fill — the 5h/7d figures
+// reach a statusLine and nothing else, so a usage-mode unit is a dead screen for
+// anyone driving Claude Code from the desktop app. Note the trade: a
+// sessions-mode unit whose sender predates the board shows "UPDATE YOUR SENDER"
+// rather than something useful.
 #define DEFAULT_MODE  MODE_SESSIONS
 
 // Session board. The sender caps `sess` at six rows to match what fits on the
@@ -148,8 +150,18 @@
 
 // Once usage stops arriving for this long (laptop asleep, agent stopped,
 // network down) the screen leaves the stats for the idle mascot animation.
-// The effective timeout also scales with the poll period (see UsageMode).
+// The effective timeout also scales with the poll period (see usageStaleMs).
 #define USAGE_STALE_GRACE_MS  20000UL
+
+// Stale window for a PUSHED unit — one with no pull URL, which is every unit the
+// clawd plugin drives. pollSec has no meaning there (the sender pushes on its own
+// schedule), so deriving the window from it gave 80 s: less than ordinary
+// thinking time, and the reason a working device dropped to "waiting..." while
+// its owner was reading the answer it had just produced. /clawd:setup used to
+// POST pollSec=900 to widen it, which fixed the units it touched and left every
+// hand-paired or re-paired one looking broken. Thirty minutes reads as "you have
+// not touched Claude in a while", which is the only thing this can honestly mean.
+#define PUSH_STALE_MS       1800000UL
 
 // ---------------------------------------------------------------------------
 // Provisioning. Baking event WiFi into a batch image means a freshly flashed
