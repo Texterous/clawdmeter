@@ -381,54 +381,44 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
   <div class="card">
     <h2 class="eyebrow">Start here</h2>
     <p class="note">This device shows how much of your Claude Code usage you have spent. It
-      cannot read that by itself: one small program on your computer reads it and sends it
-      here. Five steps, about five minutes. You need a laptop or desktop — a phone cannot
-      run it.</p>
+      cannot read that by itself: a Claude Code plugin on your computer reads it and sends it
+      here. Two commands and a four-character code. You need the machine you run Claude Code
+      on — a phone cannot do it.</p>
     <p class="note" id="apFirst" style="display:none"><b>Do the Wifi tab first.</b> The
-      address in step 5 is the name this device will have once it joins your network, not
-      the one it answers to now.</p>
+      plugin looks for this device on your own network, which it has not joined yet.</p>
     <ol class="note">
-      <li>Install <b>Python 3.10 or newer</b> from
-        <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>.
-        On Windows, tick <b>Add python.exe to PATH</b> in the installer.</li>
-      <li>Download the sender from
-        <a href="https://github.com/giovi321/clawdmeter-daemon" target="_blank" rel="noopener">github.com/giovi321/clawdmeter-daemon</a>:
-        green <b>Code</b> button, <b>Download ZIP</b>, then unzip it.</li>
-      <li>In the unzipped folder run <code>.\install.bat</code> (Windows) or
-        <code>./install.sh</code> (macOS, Linux). It builds its own private environment and
-        cannot disturb anything else on your machine.</li>
-      <li>Let it read your usage: run <code>claude setup-token</code>, copy the
-        <code>sk-ant-oat…</code> value it prints, and store it as
-        <code>CLAUDE_CODE_OAUTH_TOKEN</code>. On Windows, open a <b>new</b> terminal
-        afterwards or it will not be set yet.
-        <div class="cmd"><code id="cmdTokWin"></code><button class="btn sec" data-copy="cmdTokWin">Copy</button></div>
-        <div class="cmd"><code id="cmdTokNix"></code><button class="btn sec" data-copy="cmdTokNix">Copy</button></div>
+      <li>Add the plugin to Claude Code:
+        <div class="cmd"><code id="cmdInstall"></code><button class="btn sec" data-copy="cmdInstall">Copy</button></div>
       </li>
-      <li>Start it, pointed at this device — the address is already filled in.
-        <div class="cmd"><code id="cmdRunWin"></code><button class="btn sec" data-copy="cmdRunWin">Copy</button></div>
-        <div class="cmd"><code id="cmdRunNix"></code><button class="btn sec" data-copy="cmdRunNix">Copy</button></div>
-        <small class="hint">These run it in the background with an icon in your system tray
-          or menu bar — that icon is how you check on it and quit it. Numbers appear here
-          and on the device within about twenty seconds.</small>
+      <li>Run <code>/clawd:setup</code> in Claude Code and give it this unit's code:
+        <div class="cmd"><code id="cmdCode"></code><button class="btn sec" data-copy="cmdCode">Copy</button></div>
+        <small class="hint">The same characters are on the device screen. The plugin finds
+          this unit on your network by itself, so there is no address to type and nothing to
+          redo when your router hands it a different one.</small>
       </li>
     </ol>
-    <p class="note" id="mdnsWarn" style="display:none"><b>Note.</b> Another device on this
-      network already answers to this unit's name, so the commands above use its IP address
-      instead. If the address changes later, come back here for the new one.</p>
+    <p class="note">Numbers appear here and on the device within about thirty seconds of your
+      next message to Claude.</p>
     <details>
       <summary>Nothing showed up</summary>
-      <small class="hint">Run it in a terminal instead, from the unzipped folder. This form
-        keeps the window open and prints what it is doing, including why it cannot reach
-        the device:</small>
-      <div class="cmd"><code id="cmdDbgWin"></code><button class="btn sec" data-copy="cmdDbgWin">Copy</button></div>
-      <div class="cmd"><code id="cmdDbgNix"></code><button class="btn sec" data-copy="cmdDbgNix">Copy</button></div>
-      <small class="hint">The usual cause of silence is guest WiFi that stops devices on it
-        from reaching each other. Put your computer and this device on a phone hotspot and
-        try again.</small>
+      <small class="hint">Work down these in order — the first two are almost always it:</small>
+      <ol class="note">
+        <li><b>Same network?</b> The plugin only searches the network your computer is on.
+          A laptop on ethernet and this device on WiFi will not meet.</li>
+        <li><b>Guest or venue WiFi.</b> Many access points stop devices on them from reaching
+          each other at all, and it fails silently. Put your computer and this device on a
+          phone hotspot and run <code>/clawd:setup</code> again.</li>
+        <li><b>A big network.</b> The search covers 254 addresses. On a larger one this unit
+          can sit outside that, so give <code>/clawd:setup</code> the address below instead of
+          the code.
+          <div class="cmd"><code id="cmdAddr"></code><button class="btn sec" data-copy="cmdAddr">Copy</button></div></li>
+        <li><b>Claude subscription.</b> The usage figures only exist on a Claude Pro or Max
+          plan. On an API-key setup there is nothing for the plugin to read and this screen
+          stays as it is — working as intended, not broken.</li>
+      </ol>
     </details>
-    <small class="hint"><code>--no-discover</code> is not optional. Without it the sender
-      hunts for Clawdmeters on the network and pushes your usage to every one it finds,
-      including other people's. Source:
+    <small class="hint">The plugin talks to this one unit and nothing else, so it cannot put
+      your usage on somebody else's screen. Source:
       <a id="repoLink2" href="#" target="_blank" rel="noopener">the repository</a>.</small>
   </div>
 
@@ -457,7 +447,8 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
     </select>
     <small class="hint">The session board lists every Claude session running on your
       machine and what each one is doing — working, waiting for you, or stuck on a
-      permission prompt. It needs a daemon new enough to send them.</small>
+      permission prompt. On macOS and Linux the plugin needs <code>jq</code> to read
+      them; without it this screen says so rather than showing a blank board.</small>
     <div class="chk"><input type="checkbox" id="showMascot"><label for="showMascot">Show the animated mascot</label></div>
     <small class="hint">Usage meters only; the session board ignores it. The mascot appears
       when nothing has arrived for a while — your laptop asleep, usually. Off keeps the last
@@ -922,27 +913,17 @@ function renderCmds() {
              : (location.host || dotLocal);
   $('apFirst').style.display = ap ? '' : 'none';
   $('mdnsWarn').style.display = ST.mdns === 'taken' ? '' : 'none';
-  $('cmdTokWin').textContent = `setx CLAUDE_CODE_OAUTH_TOKEN "sk-ant-oat..."`;
-  $('cmdTokNix').textContent = `export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..."`;
-  // --no-discover is load-bearing: discovery defaults to ON even when --push-to
-  // names a device, so without it one person's usage lands on every Clawdmeter in
-  // the room. And no --no-tray on these two: start-daemon.bat launches pythonw
-  // detached, start-daemon.sh nohups to /dev/null, so it would leave an invisible
-  // process with nowhere to look. The tray is the feedback here; --no-tray belongs
-  // on the console form, which does keep a window open.
-  // The leading .\ is not decoration (doubled in the source: a lone \ is eaten by
-  // the template literal). These commands carry arguments, so they have to be pasted
-  // into a terminal, and on Windows 10/11 that terminal is PowerShell, which does not
-  // resolve a bare command name from the current directory: without it the last step
-  // of the only instructions a recipient has fails as printed.
-  $('cmdRunWin').textContent = `.\\start-daemon.bat --push-to ${host} --no-discover`;
-  $('cmdRunNix').textContent = `./start-daemon.sh --push-to ${host} --no-discover`;
-  // The venv interpreter by path: install.bat/install.sh put the dependencies in
-  // .venv, and a bare `python` is routinely a different one that cannot import them.
-  $('cmdDbgWin').textContent =
-    `.venv\\Scripts\\python clawdmeter_daemon.py --no-tray --push-to ${host} --no-discover`;
-  $('cmdDbgNix').textContent =
-    `.venv/bin/python clawdmeter_daemon.py --no-tray --push-to ${host} --no-discover`;
+  // The code is the last four characters of the hostname (clawd-<4hex>), which is
+  // also what the commissioning screen prints. Deriving it here rather than asking
+  // the reader to squint at the glass means the two can never disagree.
+  const unit = (ST.host || '');
+  const code = unit.includes('-') ? unit.split('-').pop() : unit;
+  $('cmdInstall').textContent =
+    'claude plugin marketplace add Texterous/clawdmeter && claude plugin install clawd@clawdmeter';
+  $('cmdCode').textContent = code || unit || '(see the device screen)';
+  // The escape hatch for a network wider than the /24 the plugin sweeps. Prefer the
+  // name, fall back to the IP when another responder on this link has taken it.
+  $('cmdAddr').textContent = `/clawd:setup ${host}`;
   $('cmdPush').textContent =
     `curl -X POST http://${host}/api/usage \\\n  -d '{"s":42,"sr":118,"w":63,"wr":4200,"st":"allowed","ok":true}'`;
   const repo = ST.repo || 'https://github.com/Texterous/clawdmeter';

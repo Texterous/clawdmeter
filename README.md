@@ -13,11 +13,18 @@ Status · Wifi · Display · Clawdmeter · System
 
 ## What it does
 
-A small program on your machine reads your Claude Code rate-limit state and POSTs
-it to the device — today that is
-[`giovi321/clawdmeter-daemon`](https://github.com/giovi321/clawdmeter-daemon),
-which drives this firmware unchanged. There is no Clawdmeter-branded agent; see
-[agent/](agent/) for why. There are two screens, picked in the web UI:
+A Claude Code plugin on your machine reads your rate-limit state and POSTs it to
+the device — [`plugin/`](plugin/) in this repository:
+
+```bash
+claude plugin marketplace add Texterous/clawdmeter
+claude plugin install clawd@clawdmeter
+```
+
+Then `/clawd:setup` and the four characters on the device screen. No Python, no
+credential, no address to look up. There is no Clawdmeter agent binary; see
+[agent/](agent/) for why, and for why the Python daemon is no longer the
+recommended sender. There are two screens, picked in the web UI:
 
 - **Usage meters** — the 5-hour and 7-day windows, the countdown to each reset, and
   an animated mascot whose mood tracks your burn rate.
@@ -142,19 +149,20 @@ curl -X POST http://<device>/api/usage \
 ```
 
 `s`/`w` are the 5-hour and 7-day percentages, `sr`/`wr` the minutes until each
-resets, `st` a status string. The original six keys are byte-compatible with
+resets, `st` a status string. These six keys are byte-compatible with
 [`giovi321/clawdmeter-daemon`](https://github.com/giovi321/clawdmeter-daemon), so
-that daemon drives this firmware unchanged. Run it as
-`--push-to <device> --no-discover`: the endpoint is unauthenticated by design and
-the firmware advertises `_clawdmeter._tcp`, so a daemon left with discovery on
-writes to **every** unit it can see, not just yours. `--push-to` alone does not
-turn discovery off. See [agent/](agent/).
+that daemon still drives this firmware unchanged — but note that it authenticates
+by presenting itself to the API as Claude Code, which is why [agent/](agent/) no
+longer recommends it. If you do run it, `--push-to <device>` is not enough:
+`/api/usage` is unauthenticated by design and the firmware advertises
+`_clawdmeter._tcp`, so discovery left on writes to **every** unit it can see. Add
+`--no-discover`. The plugin has no discovery to disable.
 
 `sess` and `ns` feed the session board and are optional: each row is `n` (name,
 ≤12 chars), `s` (`w`orking / `b`locked / `a`waiting) and `t` (minutes in that
 state), with `ns` the live session count when it exceeds the six rows sent. A
-payload without them still drives the meters — the board just says the daemon is
-too old, which is a different thing from "nothing is running".
+payload without them still drives the meters — the board then reads "UPDATE YOUR
+SENDER", which is a different thing from "nothing is running".
 
 ## Repository layout
 
@@ -163,7 +171,8 @@ firmware/     PlatformIO project — four envs, one board
   web/        webui.html, the source of truth for the web UI
   tools/      code generators, run automatically before each build
 provision/    batch flashing and verification — giveaway and staffed runs
-agent/        why there is no agent, and how to run the daemon that works
+plugin/       the clawd Claude Code plugin — the sender people install
+agent/        why there is no agent binary, and the /api/usage contract
 docs/         flashing, recovery, and the event runbook
 ```
 
