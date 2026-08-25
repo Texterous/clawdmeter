@@ -1,0 +1,15 @@
+{
+  "name": "clawdmeter",
+  "description": "Plugins for the Clawdmeter SmallTV desk display: turn a EUR 13 screen into a live Claude Code usage meter.",
+  "owner": {
+    "name": "Texterous",
+    "url": "https://github.com/Texterous"
+  },
+  "plugins": [
+    {
+      "name": "clawd",
+      "source": "./plugin",
+      "description": "Send your Claude Code usage to a Clawdmeter desk display over your local network."
+    }
+  ]
+}
