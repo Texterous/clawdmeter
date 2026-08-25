@@ -51,8 +51,9 @@ usage reading.
   so with no `jq` the board is omitted rather than guessed. A unit in sessions
   mode then says "no session data / UPDATE YOUR SENDER", which is the honest
   reading.
-- Set `board=0` in `~/.clawd/config` to switch it off. Worth doing if your device
-  is on the usage screen anyway: collecting the board is most of the render cost.
+- Set `board=0` in `~/.clawd/config` to switch it off. On Windows the board costs
+  about 384 ms of a roughly 1.2 s render — worth switching off if your device is on
+  the usage screen anyway, but it is not the dominant cost.
 
 ## Finding the device
 

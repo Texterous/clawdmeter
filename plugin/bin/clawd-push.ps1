@@ -300,6 +300,34 @@ function ConvertTo-JsonString {
   return ($Value -replace '\\', '\\\\' -replace '"', '\"' -replace "[`r`n`t]", ' ')
 }
 
+# Is anything listening? Measured on a cold powershell.exe: Invoke-RestMethod to a
+# port nothing is on burns its whole -TimeoutSec budget — 1,028 ms even on the
+# second attempt — instead of taking the instant refusal. That is the exact path a
+# render hits whenever the device is asleep or has moved, so every 30 s would cost
+# a second for nothing. A bounded TCP probe first costs a reachable device 1-14 ms
+# and caps an unreachable one at this timeout.
+#
+# 300 ms, not the 150 ms that was enough locally: an ESP8266 on WiFi answers a SYN
+# in a few ms, but a false "unreachable" is expensive — it skips the push and
+# triggers a rediscovery sweep — so the budget is deliberately generous.
+function Test-PortOpen {
+  param([string]$Target, [int]$TimeoutMs = 300)
+  $h = $Target; $p = 80
+  $i = $Target.LastIndexOf(':')
+  if ($i -gt 0 -and $Target.Substring($i + 1) -match '^\d+$') {
+    $h = $Target.Substring(0, $i)
+    $p = [int]$Target.Substring($i + 1)
+  }
+  try {
+    $c = New-Object System.Net.Sockets.TcpClient
+    $ar = $c.BeginConnect($h, $p, $null, $null)
+    $ok = $false
+    if ($ar.AsyncWaitHandle.WaitOne($TimeoutMs)) { $c.EndConnect($ar); $ok = $true }
+    $c.Close()
+    return $ok
+  } catch { return $false }
+}
+
 $s = $null; $w = $null; $sr = 0; $wr = 0
 
 # Minutes until a reset, from an epoch-seconds value.
@@ -342,7 +370,9 @@ try {
 # The device keeps its last good values on ok:false and flags the error, so an
 # absent rate_limits block is reported honestly rather than sent as zeroes.
 $pushed = $false
-if ($ip) {
+# Probe before building anything: no reason to collect a session board for a
+# device that is not there, which is most of the render when one is asleep.
+if ($ip -and (Test-PortOpen -Target $ip)) {
   if ($null -ne $s) {
     if     ($s -ge 100) { $st = 'rejected' }
     elseif ($s -ge 80)  { $st = 'allowed_warning' }
