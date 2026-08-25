@@ -33,6 +33,12 @@ struct UsageData {
   uint8_t     sessionLive;   // sessions alive on the host; may exceed sessionRows
   bool        boardValid;    // the payload carried a "sess" array
 
+  // Whether the payload carried 5h/7d numbers at all. A board-only sender —
+  // the plugin's hook, which cannot see rate limits — sets boardValid without
+  // this, and the sessions footer then omits the 5H WINDOW row rather than
+  // drawing a confident 0%.
+  bool        usageValid;
+
   bool     valid;            // populated at least once
   bool     error;            // most recent fetch failed
   uint32_t lastOkMs;         // millis() of last good update
@@ -43,6 +49,7 @@ struct UsageData {
     status[0] = 0;
     sessionRows = sessionLive = 0;
     boardValid = false;
+    usageValid = false;
     valid = false;
     error = false;
     lastOkMs = 0;

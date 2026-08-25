@@ -78,13 +78,23 @@ static void applyBoard(UsageData& d, JsonDocument& doc) {
 
 static bool applyUsageDoc(UsageData& d, JsonDocument& doc) {
   if (doc["ok"].is<bool>() && doc["ok"].as<bool>() == false) return false;
-  if (!doc["s"].is<float>() && !doc["s"].is<int>()) return false;   // require at least session %
 
-  d.sessionPct      = constrain(doc["s"].as<float>(), 0.0f, 100.0f);
-  d.weeklyPct       = constrain(doc["w"] | 0.0f, 0.0f, 100.0f);
-  d.sessionResetMin = doc["sr"] | 0;
-  d.weeklyResetMin  = doc["wr"] | 0;
-  strlcpy(d.status, doc["st"] | "", sizeof(d.status));
+  // Either half is enough. A sender with rate limits but no board is the older
+  // contract; a sender with a board but no rate limits is the plugin's hook,
+  // which runs in every Claude Code entrypoint but is never given them. Requiring
+  // "s" rejected the second with a 400 and left the panel on "waiting...".
+  const bool hasUsage = doc["s"].is<float>() || doc["s"].is<int>();
+  const bool hasBoard = doc["sess"].is<JsonArrayConst>();
+  if (!hasUsage && !hasBoard) return false;
+
+  if (hasUsage) {
+    d.sessionPct      = constrain(doc["s"].as<float>(), 0.0f, 100.0f);
+    d.weeklyPct       = constrain(doc["w"] | 0.0f, 0.0f, 100.0f);
+    d.sessionResetMin = doc["sr"] | 0;
+    d.weeklyResetMin  = doc["wr"] | 0;
+    strlcpy(d.status, doc["st"] | "", sizeof(d.status));
+    d.usageValid = true;
+  }
   applyBoard(d, doc);
 
   d.valid = true;

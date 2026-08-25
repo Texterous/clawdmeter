@@ -276,13 +276,15 @@ void UsageMode::service(const Settings& s) {
 
   // Considered stale after ~2 missed polls (plus a grace) — then show the animation.
   uint32_t staleMs = (uint32_t)s.usage.pollSec * 1000UL * 2UL + USAGE_STALE_GRACE_MS;
-  bool fresh = usageFresh(staleMs);
+  // && usageValid: a board-only sender stamps lastOkMs on every push, so without
+  // this the meters would read a confident 0% as live data.
+  bool fresh = usageFresh(staleMs) && u.usageValid;
 
   // showMascot off means "numbers, not animation": keep the last reading on screen
   // with the title marking it stale, rather than hiding it behind the idle
   // creature. The setting was persisted and had a checkbox, and no renderer read
   // it — a settings page that lies is worse than one option fewer.
-  if (fresh || (!s.usage.showMascot && u.valid)) {
+  if (fresh || (!s.usage.showMascot && u.usageValid)) {
     if (showingMascot_) { showingMascot_ = false; needRender_ = true; primed_ = false; }
     UsageFrame f = usageFrame(u, fresh);
     // needRender_ (boot, a settings change, a mode switch, the mascot coming down)

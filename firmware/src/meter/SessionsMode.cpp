@@ -88,6 +88,11 @@ static void drawFooter(Arduino_GFX* gfx, const UsageData& u) {
   summaryLine(u, line, sizeof(line));
   if (line[0]) drawLeft(gfx, 8, FOOTER_TOP + 8, line, 1, C_DIM);
 
+  // No 5h rows when the sender has no rate limits to give. The plugin's hook runs
+  // in every entrypoint but is never handed them, so drawing 0% here would be a
+  // confident lie on the most-read part of the screen.
+  if (!u.usageValid) return;
+
   drawLeft(gfx, 8, 202, "5H WINDOW", 1, C_DIM);
   char pct[8];
   snprintf(pct, sizeof(pct), "%d%%", (int)lroundf(constrain(u.sessionPct, 0.0f, 100.0f)));
@@ -127,7 +132,8 @@ static uint32_t boardFingerprint(const UsageData& u) {
   uint32_t f = 2166136261u;
   // Picks the screen (board / "no session data" / "nothing running"), the header
   // count and its colour, and every count in the footer summary.
-  const uint8_t hdr[3] = { (uint8_t)u.boardValid, u.sessionRows, u.sessionLive };
+  const uint8_t hdr[4] = { (uint8_t)u.boardValid, (uint8_t)u.usageValid,
+                           u.sessionRows, u.sessionLive };
   f = fnvBytes(f, hdr, sizeof(hdr));
 
   for (uint8_t i = 0; i < u.sessionRows; i++) {

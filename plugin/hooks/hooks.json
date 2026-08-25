@@ -1,0 +1,71 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$OS\" = \"Windows_NT\" ]; then powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.sh\"; fi",
+            "timeout": 10
+          }
+        ],
+        "matcher": ".*"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$OS\" = \"Windows_NT\" ]; then powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.sh\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$OS\" = \"Windows_NT\" ]; then powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.sh\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$OS\" = \"Windows_NT\" ]; then powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.sh\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$OS\" = \"Windows_NT\" ]; then powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.sh\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ \"$OS\" = \"Windows_NT\" ]; then powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.ps1\"; else sh \"${CLAUDE_PLUGIN_ROOT}/bin/clawd-report.sh\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -126,6 +126,14 @@ static void handleStatus() {
   JsonObject m = o["meter"].to<JsonObject>();
   m["valid"] = u.valid;
   m["error"] = u.error;
+  // Board state, always — not inside the u.valid branch. A sender needs to be
+  // able to confirm a board actually landed without anyone reading the glass,
+  // and "the payload parsed but carried no board" is exactly the case worth
+  // seeing from the outside.
+  m["usageValid"] = u.usageValid;
+  m["boardValid"] = u.boardValid;
+  m["rows"]       = u.sessionRows;
+  m["live"]       = u.sessionLive;
   if (u.valid) {
     m["sessionPct"]      = u.sessionPct;
     m["sessionResetMin"] = u.sessionResetMin;
