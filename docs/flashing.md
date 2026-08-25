@@ -20,19 +20,72 @@ A new unit runs GeekMagic's stock firmware, which exposes its own OTA page.
    curl -F "firmware=@clawdmeter-ultra-slim.bin" http://<device-ip>/update
    ```
 
-4. It reboots into Clawdmeter and — if the image was built with baked credentials —
-   rejoins the same network by itself. Open `http://clawdmeter-XXXX.local`.
+4. It reboots into Clawdmeter. What happens next depends on the image:
+   - built with baked credentials, it rejoins the same network by itself and you
+     can open `http://clawd-xxxx.local`;
+   - built without them (the giveaway image), it opens **its own** setup hotspot
+     and the panel says `SET ME UP` with the hotspot name to join. That is the
+     intended end state for a unit you are giving away — see
+     [`provision/`](../provision/).
 
 **Use the slim image for this step.** Stock reserves most of the flash for image
-storage, so its updater rejects anything much over 512 KiB (524,288 B). The slim
-build is 516,976 B — under it, but only by ~7 KB, so watch this number when the
-image grows. The full build is 632,464 B and will not fit.
+storage, so its updater will not take the full build.
 
-> The exact ceiling has not been measured on hardware yet. If step 3 is refused
-> for lack of space, fall back to the loader below — it is 317 KB and upstream
-> confirms that size passes.
+## The two size limits, which are not the same number
+
+Conflating these is what has made the headroom look bigger than it is. There are
+two independent ceilings and the lower one binds:
+
+| | bytes | what it is |
+|---|--:|---|
+| CI gate | **520,000** | `.github/workflows/build.yml` stats `firmware.bin` and **fails the build** above this. Self-imposed, and it is the one you hit first. |
+| Stock OTA ceiling | **524,288** | 512 KiB. GeekMagic's stock updater refuses an upload much over this, so an image above it cannot be installed in one step on a factory-fresh unit at all. |
+
+Measured sizes, firmware 0.3.0, all four `pio run` targets:
+
+| env | image | bytes | headroom to CI gate | headroom to stock ceiling |
+|---|---|--:|--:|--:|
+| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **517,680** | 2,320 | 6,608 |
+| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **517,632** | 2,368 | 6,656 |
+| `ultra` | `clawdmeter-ultra.bin` | 633,408 | — | over both |
+| `loader` | `rollback-loader.bin` | 317,424 | — | — |
+
+`ultra_giveaway` is the image that goes to recipients, and it is always the smaller
+of the two gated builds — it is `ultra_slim` with the baked-credential string
+literals compiled out. So CI gating `ultra_slim` is a valid conservative bound for
+both, which is why the gate did not need a second threshold when that env was
+added.
+
+The 4,288 B between the CI gate and the stock ceiling is deliberate slack — leave
+it unspent. Being installable in one web upload, with no tooling on the recipient's
+side, *is* the distribution mechanism; raising the gate spends the only thing that
+makes that true.
+
+**`dist/` is not these images.** It holds a 0.2.x build (517,024 B,
+sha256 `449d0db0…`, versus `17e6a8ab…` for a fresh `ultra_slim`) that predates the
+onboarding work: no commissioning screen, the old `Clawdmeter-Setup` AP name, the
+dead `/agent/install.*` routes, and an `/api/export` that hands WiFi passwords to
+any unauthenticated caller. Refresh it before any batch run:
+
+```bash
+cd firmware
+pio run -e ultra_slim -e ultra -e ultra_giveaway -e loader
+mkdir -p ../dist
+cp .pio/build/ultra_slim/firmware.bin      ../dist/clawdmeter-ultra-slim.bin
+cp .pio/build/ultra/firmware.bin           ../dist/clawdmeter-ultra.bin
+cp .pio/build/ultra_giveaway/firmware.bin  ../dist/clawdmeter-ultra-giveaway.bin
+cp .pio/build/loader/firmware.bin          ../dist/rollback-loader.bin
+```
+
+`provision/flash.ps1` refuses to upload an image whose `FW_VERSION` string does not
+match `firmware/src/config.h`, so a forgotten refresh now stops the run instead of
+silently shipping the old firmware. Never overwrite the slim image with a giveaway
+build or the other way round — they differ only in a string nothing on the device
+prints, and the giveaway guard is what tells them apart.
 
 ## Fallback: the two-step loader install
+
+If step 3 is refused for lack of space:
 
 ```
 stock  --/update-->  loader (317 KB)  --/update-->  clawdmeter (any size)
@@ -59,9 +112,14 @@ Straight through the System tab, or:
 curl -F "firmware=@clawdmeter-ultra.bin" http://<device>/update
 ```
 
-Note the free-space ceiling: OTA caps an upload at the free flash *above* the
-running sketch, not at the partition size. Slim → full is fine. Anything over
-~530 KB while the slim image is running is not, and needs the loader step-down.
+Neither ceiling above applies once Clawdmeter is running — they are stock's and
+CI's, not the board's. What applies instead is free flash *above* the running
+sketch: with the 517,680 B slim image up, `ESP.getFreeSketchSpace()` is 0x300000
+(the LittleFS start at `_FS_start = 0x40500000`) minus the sketch rounded up to a
+sector, so `/update` accepts about **2.5 MB**. The linker script caps any image
+this project can build at `irom0_0_seg` = 1,044,464 B, well under that, so **every
+slim → full upgrade fits and the loader step-down is never needed here.** It exists
+only for step 3, where stock's updater is the one refusing.
 
 The full image can also update itself from GitHub releases (System tab). The slim
 image cannot — it has no TLS — so it hides that button rather than offering one
@@ -70,5 +128,7 @@ that can only fail.
 ## A batch
 
 See [`provision/`](../provision/). Short version: one access-point join per unit to
-get it on the venue network, then everything after that is scripted over the LAN
-with no further network changes.
+get it onto the bench network, then the upload is scripted over the LAN. A batch
+being given away is flashed with provisioning compiled **out**, so each unit ends
+up on its own setup hotspot rather than rejoining yours — `flash.ps1 -Giveaway`
+refuses an image that would do otherwise.

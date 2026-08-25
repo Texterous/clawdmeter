@@ -3,6 +3,10 @@
 #include <ArduinoJson.h>
 #include <math.h>
 
+// Defined in main.cpp — the first payload of a unit's life retires the
+// commissioning screen. Only ever sets a RAM flag; loop() does the flash write.
+extern void appMarkCommissioned();
+
 static UsageData g_usage;
 static uint32_t  g_nextPollMs = 0;
 static bool      g_inited = false;
@@ -86,6 +90,10 @@ static bool applyUsageDoc(UsageData& d, JsonDocument& doc) {
   d.valid = true;
   d.error = false;
   d.lastOkMs = millis();
+  // The one point both paths pass through — pushed via usageApply (Web.cpp) and
+  // pulled via parseUsage — so hooking it here is what makes a pull-mode unit
+  // leave the commissioning screen too.
+  appMarkCommissioned();
   return true;
 }
 

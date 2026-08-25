@@ -19,7 +19,9 @@
 
 // Same gitignored-header mechanism as config.h: an SSID with a space cannot
 // survive -D flag splitting. provision_local.h may define LOADER_SSID/PASS too.
-#if defined(__has_include)
+// -D NO_PROVISION suppresses it for the same reason config.h honours the flag:
+// a loader built for a giveaway batch must not carry a venue credential either.
+#if defined(__has_include) && !defined(NO_PROVISION)
   #if __has_include("provision_local.h")
     #include "provision_local.h"
   #endif

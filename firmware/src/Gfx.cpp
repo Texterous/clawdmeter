@@ -136,12 +136,25 @@ void gfxDrawCentered(const char* s, int y, uint8_t size, uint16_t color) {
   gfx->print(s);
 }
 
-// Largest size (<= maxSize) whose rendered width fits within maxW.
-uint8_t gfxFitSize(const char* s, int maxW, uint8_t maxSize) {
-  for (uint8_t sz = maxSize; sz > 1; sz--) {
+// Largest size in [minSize, maxSize] whose rendered width fits maxW, or 0 when
+// even minSize overflows. The old single-function version fell through to 1
+// without ever width-testing it, so a 21-character name rendered as 6x8 text on
+// a 1.54" panel — legible only to someone who already knew what it said.
+// Callers that get 0 drop or truncate the line.
+uint8_t gfxFitSizeMin(const char* s, int maxW, uint8_t maxSize, uint8_t minSize) {
+  if (!minSize) minSize = 1;
+  for (uint8_t sz = maxSize; ; sz--) {
     if (gfxTextW(s, sz) <= maxW) return sz;
+    if (sz <= minSize) break;   // uint8_t: decrementing past minSize would wrap to 255
   }
-  return 1;
+  return 0;
+}
+
+// Kept for the lines that genuinely cannot be dropped — the setup SSID, the IP,
+// the boot caption. One loop, so every existing caller behaves bit-identically.
+uint8_t gfxFitSize(const char* s, int maxW, uint8_t maxSize) {
+  uint8_t sz = gfxFitSizeMin(s, maxW, maxSize, 1);
+  return sz ? sz : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,43 +206,92 @@ void gfxBoot(const char* line1, const char* line2) {
   if (line2 && line2[0]) gfxDrawCentered(line2, 130, 2, C_GRAY);
 }
 
-void gfxApInfo(const char* ssid, const char* pass, const char* ip) {
+// Where the unit's own web UI lives once it is on a real network. Never with an
+// "http://" prefix: that turns a 16-character name into 23 chars = 276 px, over
+// the 232 px budget, and the line silently loses its size-2 rendering. Phones and
+// desktop browsers both resolve a bare host, so the prefix bought nothing.
+static void hostUrl(char* out, size_t n, const char* host) {
+  snprintf(out, n, "%s.local", host);
+}
+
+// Setup-mode screen. Two layouts, because the geometry genuinely differs: the
+// default AP is open (DEFAULT_AP_PASS is empty) and gets the roomier spacing,
+// while a password needs two more rows paid for out of the margins.
+//
+// The SSID is the largest thing on the screen after the title, at text size 3,
+// directly under an imperative that names it. That pairing IS the answer to a
+// room of thirty units: they all broadcast names of identical shape differing
+// only in four hex characters, and the only reliable way to pick yours is to read
+// it off the unit in your hand. At the old size 1 the caps are 0.65 mm on 39 mm
+// of glass — a 13 cm read. At size 3 they are 3.9 mm, which is arm's length.
+// There is no vertical budget left for a sentence about it; the portal's first
+// card carries the explicit "if this name is not on the screen in front of you,
+// you have joined someone else's device".
+void gfxApInfo(const char* ssid, const char* pass, const char* ip, const char* host) {
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
-  gfxDrawCentered("SETUP MODE", 18, 3, C_YELLOW);
-  gfxDrawCentered("Join WiFi:", 64, 2, C_GRAY);
-  gfxDrawCentered(ssid, 88, gfxFitSize(ssid, 232, 3), C_WHITE);
-  if (pass && pass[0]) {
-    gfxDrawCentered("Password:", 124, 2, C_GRAY);
-    gfxDrawCentered(pass, 146, gfxFitSize(pass, 232, 2), C_WHITE);
+  const bool locked = pass && pass[0];
+
+  gfxDrawCentered("SET ME UP", locked ? 6 : 10, 3, C_YELLOW);          // 9 x 6 x 3 = 162
+  gfxDrawCentered("Join this WiFi:", locked ? 38 : 46, 2, C_GRAY);     // 15 x 6 x 2 = 180
+  // gfxFitSize, not gfxFitSizeMin: this line can never be dropped, it is the
+  // whole point of the screen. "Clawd-a1b2" is 10 x 6 x 3 = 180 px, so a default
+  // name lands at size 3. A hand-set name too long even for 6x8 clips at the
+  // panel edge (setTextWrap is off in gfxBegin) — self-inflicted, and not the
+  // giveaway case.
+  gfxDrawCentered(ssid, locked ? 58 : 68, gfxFitSize(ssid, 232, 3), C_WHITE);
+
+  if (locked) {
+    gfxDrawCentered("Password:", 88, 1, C_GRAY);                       // 9 x 6 x 1 = 54
+    gfxDrawCentered(pass, 100, gfxFitSize(pass, 232, 2), C_WHITE);     // <=19 ch at size 2
+    gfx->fillRect(8, 124, 224, 2, C_DGRAY);
   } else {
-    gfxDrawCentered("(open network)", 124, 2, C_GRAY);
+    gfxDrawCentered("(no password)", 98, 2, C_GRAY);                   // 13 x 6 x 2 = 156
+    gfx->fillRect(8, 122, 224, 2, C_DGRAY);
   }
-  gfxDrawCentered("Then open:", 182, 2, C_GRAY);
-  String url = String("http://") + ip;
-  gfxDrawCentered(url.c_str(), 206, gfxFitSize(url.c_str(), 232, 2), C_GREEN);
+
+  gfxDrawCentered("Then open:", 134, 2, C_GRAY);                       // 10 x 6 x 2 = 120
+  // The bare address, never "http://" + ip: that is 22 chars for a worst-case
+  // IPv4 = 264 px at size 2, so the single most important string on the screen
+  // used to fall silently to 6x8. "192.168.4.1" is 11 x 6 x 3 = 198 px, and the
+  // longest possible IPv4 still fits at size 2 (15 x 6 x 2 = 180).
+  gfxDrawCentered(ip, locked ? 154 : 156, gfxFitSize(ip, 232, 3), C_GREEN);
+  gfx->fillRect(8, locked ? 186 : 190, 224, 2, C_DGRAY);
+
+  // Where the UI lives after setup. Dropped whole, label included, when even 6x8
+  // will not fit — that takes a hostname over 32 characters, and anyone who set
+  // one of those can find the page again without being told.
+  if (host && host[0]) {
+    char url[64];
+    hostUrl(url, sizeof(url), host);
+    uint8_t sz = gfxFitSizeMin(url, 232, 2, 1);
+    if (sz) {
+      gfxDrawCentered("After setup:", locked ? 196 : 200, 1, C_GRAY);  // 12 x 6 x 1 = 72
+      gfxDrawCentered(url, locked ? 210 : 214, sz, C_GRAY);            // 16 x 6 x 2 = 192
+    }
+  }
 }
 
 void gfxStaInfo(const char* ssid, const char* ip, const char* host) {
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
-  gfxDrawCentered("CONNECTED", 18, 3, C_GREEN);
-  gfxDrawCentered("Network:", 62, 2, C_GRAY);
-  gfxDrawCentered(ssid && ssid[0] ? ssid : "-", 84, gfxFitSize(ssid, 232, 3), C_WHITE);
-  gfxDrawCentered("Open in browser:", 126, 2, C_GRAY);
-  // IP shown big (always fits at size 2); mDNS name below as a friendlier option.
-  gfxDrawCentered(ip && ip[0] ? ip : "-", 150, gfxFitSize(ip, 232, 3), C_GREEN);
+  gfxDrawCentered("CONNECTED", 18, 3, C_GREEN);                        // 9 x 6 x 3 = 162
+  gfxDrawCentered("Network:", 62, 2, C_GRAY);                          // 8 x 6 x 2 = 96
+  // Measure the string that actually gets drawn. This used to size `ssid` while
+  // printing "-" for a null one: the wrong width, and a strlen on a null pointer.
+  const char* nm = (ssid && ssid[0]) ? ssid : "-";
+  gfxDrawCentered(nm, 84, gfxFitSize(nm, 232, 3), C_WHITE);            // 32-ch SSID -> size 1
+  gfxDrawCentered("Open in browser:", 126, 2, C_GRAY);                 // 16 x 6 x 2 = 192
+  // IP big (worst-case IPv4 is 15 x 6 x 2 = 180); mDNS name below as the
+  // friendlier option, dropped rather than clipped when the hostname is absurd.
+  const char* addr = (ip && ip[0]) ? ip : "-";
+  gfxDrawCentered(addr, 150, gfxFitSize(addr, 232, 3), C_GREEN);
   if (host && host[0]) {
-    String url = String("http://") + host + ".local";
-    gfxDrawCentered(url.c_str(), 188, gfxFitSize(url.c_str(), 232, 2), C_GRAY);
+    char url[64];
+    hostUrl(url, sizeof(url), host);
+    uint8_t sz = gfxFitSizeMin(url, 232, 2, 1);
+    if (sz) gfxDrawCentered(url, 188, sz, C_GRAY);                     // 16 x 6 x 2 = 192
   }
-}
-
-void gfxMessage(const char* title, const char* msg, uint16_t titleColor) {
-  if (!gfx) return;
-  gfx->fillScreen(C_BLACK);
-  gfxDrawCentered(title, 90, 3, titleColor);
-  if (msg && msg[0]) gfxDrawCentered(msg, 130, 2, C_GRAY);
 }
 
 // Persistent crash screen shown in safe mode (after an exception reset). Holds the

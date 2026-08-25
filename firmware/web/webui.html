@@ -123,6 +123,10 @@ h3{font-family:var(--serif);font-weight:700;font-size:1.05rem;letter-spacing:-.0
 p.note{color:var(--muted);font-size:.86rem;margin:.5rem 0 0}
 p.note:first-child{margin-top:0}
 a{color:var(--accent)}
+ol.note{padding-left:1.25rem}
+ol.note>li{margin:.55rem 0}
+details{margin:.7rem 0 0}
+summary{cursor:pointer;color:var(--accent);font-size:.84rem;font-weight:600}
 
 /* ---- key/value rows -------------------------------------------------- */
 .kv{display:flex;justify-content:space-between;gap:1rem;padding:.45rem 0;border-bottom:1px solid var(--line-soft);font-size:.9rem}
@@ -229,7 +233,26 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 
 <!-- ================= STATUS ================= -->
 <section id="status" class="tab active">
-  <div class="card">
+  <!-- Replaces the post-save toast. The hotspot is about to vanish and a 2.6 s
+       toast vanishes with it, taking the only copy of the next address. -->
+  <div id="handoff" class="card" style="display:none">
+    <h2 class="eyebrow">Step 2 of 2</h2>
+    <p class="note">Saved. The device is restarting and joining <b id="hoNet"></b>.</p>
+    <ol class="note">
+      <li>Put this phone or laptop back on <b id="hoNet2"></b>.</li>
+      <li>Then open <code id="hoUrl"></code></li>
+    </ol>
+    <small class="hint">The device screen shows that same address with its IP underneath —
+      use the IP if <code>.local</code> does not resolve. If it goes back to
+      <b>SET ME UP</b> instead, the password was wrong: rejoin this hotspot and try again.
+      If you set up the wrong unit, your WiFi password is now stored on it: reach that
+      unit again and use System &rarr; Factory reset.</small>
+    <p class="note" id="hoStuck" style="display:none"><b>That did not work.</b> The device is
+      back on its own hotspot, so it could not join — a mistyped password, usually. Open
+      the Wifi tab and try again.</p>
+  </div>
+
+  <div class="card" id="liveCard">
     <h2 class="eyebrow">Clawdmeter</h2>
     <div id="meterLive">
       <p class="note">Loading…</p>
@@ -249,6 +272,19 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 
 <!-- ================= WIFI ================= -->
 <section id="wifi" class="tab">
+  <!-- AP mode only. Thirty units in one room broadcast near-identical names, and
+       joining the wrong one writes your home WiFi password into a stranger's
+       device. This is where the panel's name and this one get compared. -->
+  <div id="apIntro" class="card" style="display:none">
+    <h2 class="eyebrow">Step 1 of 2</h2>
+    <p class="note">You are setting up <b id="apWho">this device</b>. Check the device
+      screen — it shows the same name under <b>Join this WiFi</b>. If it does not, you have
+      joined someone else's device: go back to your WiFi settings and pick the matching
+      one.</p>
+    <p class="note">Then choose your own network below and save. The device restarts, joins
+      it, and shows you where to go next on its own screen.</p>
+  </div>
+
   <div class="card">
     <h2 class="eyebrow">Networks</h2>
     <p class="note">The device joins the strongest saved network it can see. Up to four,
@@ -264,9 +300,10 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
   <div class="card">
     <h2 class="eyebrow">Identity</h2>
     <label for="hostname">Hostname</label>
-    <input type="text" id="hostname" autocapitalize="off" spellcheck="false">
-    <small class="hint">Reachable as <code id="hostPreview">clawdmeter</code>.local on most
-      networks. Changing it reboots the device.</small>
+    <input type="text" id="hostname" maxlength="32" autocapitalize="off" spellcheck="false">
+    <small class="hint">Reachable as <code id="hostPreview">clawd</code>.local on most
+      networks. Changing it reboots the device. Capped at 32: past that the address stops
+      fitting the device screen and is dropped from it.</small>
   </div>
 
   <div class="card">
@@ -274,10 +311,12 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
     <p class="note">Shown when no saved network is in range. This is how you get back in
       after moving the device to a new place, so leaving it open is usually right.</p>
     <div class="row">
-      <div><label for="apSsid">Name</label><input type="text" id="apSsid" autocapitalize="off" spellcheck="false"></div>
-      <div><label for="apPass">Password</label><input type="password" id="apPass" placeholder="(open)" autocomplete="new-password"></div>
+      <div><label for="apSsid">Name</label><input type="text" id="apSsid" maxlength="32" autocapitalize="off" spellcheck="false"></div>
+      <div><label for="apPass">Password</label><input type="password" id="apPass" maxlength="63" placeholder="(open)" autocomplete="new-password"></div>
     </div>
-    <small class="hint">Eight characters minimum, or blank for an open hotspot.</small>
+    <small class="hint">Eight characters minimum, or blank for an open hotspot. The name is
+      capped at 32: longer or empty, and the radio refuses to start the hotspot at all —
+      which is the only way back into a device that cannot reach your network.</small>
   </div>
 
   <div class="btns"><button class="btn" id="saveWifi">Save WiFi settings</button></div>
@@ -340,19 +379,56 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 <!-- ================= CLAWDMETER ================= -->
 <section id="meter" class="tab">
   <div class="card">
-    <h2 class="eyebrow">Install the agent</h2>
-    <p class="note">The device does not talk to Anthropic itself. A small agent on your
-      machine reads your Claude Code usage and pushes it here. One command:</p>
-
-    <h3>Windows</h3>
-    <div class="cmd"><code id="cmdWin"></code><button class="btn sec" data-copy="cmdWin">Copy</button></div>
-
-    <h3 style="margin-top:1rem">macOS / Linux</h3>
-    <div class="cmd"><code id="cmdNix"></code><button class="btn sec" data-copy="cmdNix">Copy</button></div>
-
-    <small class="hint">These scripts are served by the device, so they work even while
-      your machine is still joined to the setup hotspot — they will tell you to rejoin
-      your normal network before downloading. Source:
+    <h2 class="eyebrow">Start here</h2>
+    <p class="note">This device shows how much of your Claude Code usage you have spent. It
+      cannot read that by itself: one small program on your computer reads it and sends it
+      here. Five steps, about five minutes. You need a laptop or desktop — a phone cannot
+      run it.</p>
+    <p class="note" id="apFirst" style="display:none"><b>Do the Wifi tab first.</b> The
+      address in step 5 is the name this device will have once it joins your network, not
+      the one it answers to now.</p>
+    <ol class="note">
+      <li>Install <b>Python 3.10 or newer</b> from
+        <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>.
+        On Windows, tick <b>Add python.exe to PATH</b> in the installer.</li>
+      <li>Download the sender from
+        <a href="https://github.com/giovi321/clawdmeter-daemon" target="_blank" rel="noopener">github.com/giovi321/clawdmeter-daemon</a>:
+        green <b>Code</b> button, <b>Download ZIP</b>, then unzip it.</li>
+      <li>In the unzipped folder run <code>.\install.bat</code> (Windows) or
+        <code>./install.sh</code> (macOS, Linux). It builds its own private environment and
+        cannot disturb anything else on your machine.</li>
+      <li>Let it read your usage: run <code>claude setup-token</code>, copy the
+        <code>sk-ant-oat…</code> value it prints, and store it as
+        <code>CLAUDE_CODE_OAUTH_TOKEN</code>. On Windows, open a <b>new</b> terminal
+        afterwards or it will not be set yet.
+        <div class="cmd"><code id="cmdTokWin"></code><button class="btn sec" data-copy="cmdTokWin">Copy</button></div>
+        <div class="cmd"><code id="cmdTokNix"></code><button class="btn sec" data-copy="cmdTokNix">Copy</button></div>
+      </li>
+      <li>Start it, pointed at this device — the address is already filled in.
+        <div class="cmd"><code id="cmdRunWin"></code><button class="btn sec" data-copy="cmdRunWin">Copy</button></div>
+        <div class="cmd"><code id="cmdRunNix"></code><button class="btn sec" data-copy="cmdRunNix">Copy</button></div>
+        <small class="hint">These run it in the background with an icon in your system tray
+          or menu bar — that icon is how you check on it and quit it. Numbers appear here
+          and on the device within about twenty seconds.</small>
+      </li>
+    </ol>
+    <p class="note" id="mdnsWarn" style="display:none"><b>Note.</b> Another device on this
+      network already answers to this unit's name, so the commands above use its IP address
+      instead. If the address changes later, come back here for the new one.</p>
+    <details>
+      <summary>Nothing showed up</summary>
+      <small class="hint">Run it in a terminal instead, from the unzipped folder. This form
+        keeps the window open and prints what it is doing, including why it cannot reach
+        the device:</small>
+      <div class="cmd"><code id="cmdDbgWin"></code><button class="btn sec" data-copy="cmdDbgWin">Copy</button></div>
+      <div class="cmd"><code id="cmdDbgNix"></code><button class="btn sec" data-copy="cmdDbgNix">Copy</button></div>
+      <small class="hint">The usual cause of silence is guest WiFi that stops devices on it
+        from reaching each other. Put your computer and this device on a phone hotspot and
+        try again.</small>
+    </details>
+    <small class="hint"><code>--no-discover</code> is not optional. Without it the sender
+      hunts for Clawdmeters on the network and pushes your usage to every one it finds,
+      including other people's. Source:
       <a id="repoLink2" href="#" target="_blank" rel="noopener">the repository</a>.</small>
   </div>
 
@@ -383,6 +459,10 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
       machine and what each one is doing — working, waiting for you, or stuck on a
       permission prompt. It needs a daemon new enough to send them.</small>
     <div class="chk"><input type="checkbox" id="showMascot"><label for="showMascot">Show the animated mascot</label></div>
+    <small class="hint">Usage meters only; the session board ignores it. The mascot appears
+      when nothing has arrived for a while — your laptop asleep, usually. Off keeps the last
+      numbers up instead, headed <b>STALE</b> so an old reading cannot pass for a live
+      one.</small>
     <label for="usageUrl">Pull URL (optional)</label>
     <input type="url" id="usageUrl" placeholder="http://192.168.1.10:8787/" autocapitalize="off" spellcheck="false">
     <small class="hint">Leave empty for the normal push setup. Fill it in only if you want
@@ -422,8 +502,11 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 
   <div class="card">
     <h2 class="eyebrow">Settings</h2>
-    <p class="note">The backup contains your WiFi passwords in clear — same trust level as
-      typing them into this page.</p>
+    <p class="note">The backup includes your WiFi passwords only when this page is
+      password-protected (System &rarr; Access). Without that they are left out: it
+      restores every other setting, but a password it does not carry can only be
+      re-filled while this device still holds it &mdash; not after a factory reset, and
+      never onto another unit.</p>
     <div class="btns">
       <button class="btn sec" id="expBtn">Download backup</button>
       <button class="btn sec" id="impBtn">Restore backup</button>
@@ -471,27 +554,42 @@ footer{padding:1.5rem 1.15rem 2rem;text-align:center;color:var(--faint);font-siz
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let CFG = {}, ST = {};
+// booted: one-shot, so the opening tab is chosen on the first load and never again.
+// hoWatch: when the handoff card went up, so a join that never lands can be called
+// out. Declared here rather than beside their users to keep them clear of the
+// temporal dead zone — renderStatus reads hoWatch on the very first poll.
+let booted = false, hoWatch = 0;
 
-/* ---- theme: remember an explicit choice, otherwise follow the system ---- */
+/* ---- theme: remember an explicit choice, otherwise follow the system ----
+   Both localStorage calls are guarded: Safari and several Android browsers throw
+   on any access in private mode, and this block runs before everything below it,
+   so an uncaught throw here costs the whole portal — the only setup documentation
+   a recipient has. A forgotten theme is the right thing to lose instead. */
 (function () {
-  const saved = localStorage.getItem('cm-theme');
+  let saved = null;
+  try { saved = localStorage.getItem('cm-theme'); } catch {}
   if (saved) document.documentElement.dataset.theme = saved;
   $('themeBtn').onclick = () => {
     const now = document.documentElement.dataset.theme;
     const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
     const next = now ? (now === 'dark' ? 'light' : 'dark') : (sysDark ? 'light' : 'dark');
     document.documentElement.dataset.theme = next;
-    localStorage.setItem('cm-theme', next);
+    try { localStorage.setItem('cm-theme', next); } catch {}
   };
 })();
 
 /* ---- tabs ---- */
+// Named so load() can open a tab for a device that is mid-setup. Matching on
+// data-t rather than on the clicked node is what makes it callable without one;
+// the values are unique in the nav, so it is otherwise identical.
+function selectTab(name) {
+  for (const x of document.querySelectorAll('nav button')) x.classList.toggle('active', x.dataset.t === name);
+  for (const s of document.querySelectorAll('.tab')) s.classList.toggle('active', s.id === name);
+  window.scrollTo(0, 0);
+}
 $('nav').addEventListener('click', e => {
   const b = e.target.closest('button[data-t]');
-  if (!b) return;
-  for (const x of document.querySelectorAll('nav button')) x.classList.toggle('active', x === b);
-  for (const s of document.querySelectorAll('.tab')) s.classList.toggle('active', s.id === b.dataset.t);
-  window.scrollTo(0, 0);
+  if (b) selectTab(b.dataset.t);
 });
 
 let toastTimer;
@@ -553,12 +651,21 @@ function gauge(label, pct, resetMin) {
   </div>`;
 }
 
-function renderMeter(m) {
+function renderMeter(m, ap) {
   const box = $('meterLive');
+  // In AP mode `m` is meaningless: no uplink, so nothing could have been pushed.
+  // Sending someone off to install a sender is a dead end until they have joined
+  // a network, and this is the first card a captive-portal user sees.
+  if (ap) {
+    box.innerHTML = `<p class="note"><b>Set up WiFi first.</b> This device is running its
+      own hotspot, so it has no network yet. Open the <b>Wifi</b> tab, pick your network
+      and save. It restarts, joins, and puts the next address on its own screen.</p>`;
+    return;
+  }
   if (!m || !m.valid) {
     // The most-seen screen at an event, so it says what to do rather than 0%.
-    box.innerHTML = `<p class="note"><b>Waiting for the agent.</b> Nothing has been pushed
-      to this device yet. Open the Clawdmeter tab for the one-line installer.</p>`;
+    box.innerHTML = `<p class="note"><b>Waiting for the sender.</b> Nothing has been pushed
+      to this device yet. The <b>Clawdmeter</b> tab has the five steps that set it up.</p>`;
     return;
   }
   const stale = m.ageSec > 300;
@@ -572,16 +679,24 @@ function renderMeter(m) {
 
 function renderStatus(s) {
   ST = s;
-  const up = s.connected || s.mode === 'ap';
-  $('dot').className = 'dot ' + (s.connected ? 'ok' : s.mode === 'ap' ? '' : 'bad');
+  // Bound before renderMeter, not after: the first card is the one a captive-portal
+  // user reads first, and it cannot be written without knowing whether this device
+  // has a network at all.
+  const ap = s.mode === 'ap';
+  $('dot').className = 'dot ' + (s.connected ? 'ok' : ap ? '' : 'bad');
   $('hHost').textContent = s.host ? s.host + '.local' : (s.ip || '');
   $('hVer').textContent = s.version || '';
   $('sysVer').textContent = `${s.fw} ${s.version}`;
   $('footVer').textContent = `Clawdmeter ${s.version}`;
 
-  renderMeter(s.meter);
+  renderMeter(s.meter, ap);
 
-  const ap = s.mode === 'ap';
+  // The name to check against the device screen before typing a home password in.
+  // In AP mode /api/status reports the device's own hotspot SSID, which is exactly
+  // the string the panel shows under "Join this WiFi".
+  $('apIntro').style.display = ap ? '' : 'none';
+  if (ap) $('apWho').textContent = s.ssid || 'this device';
+
   $('kvNet').innerHTML = [
     ['Mode', ap ? '<span class="pill">setup hotspot</span>' : '<span class="pill ok">connected</span>'],
     ['Network', esc(s.ssid || '—')],
@@ -603,7 +718,17 @@ function renderStatus(s) {
   ].map(([k, v]) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`).join('');
 
   if (s.updateMsg) { $('updMsg').textContent = s.updateMsg; }
-  void up;
+
+  // Still in AP mode a while after a WiFi save means the join failed — a mistyped
+  // password, nearly always. Only reachable while the phone stayed on the hotspot,
+  // which is the opposite of what the card's step 1 asks for, so it is a bonus and
+  // not the mechanism: the handoff card names the panel's SET ME UP screen outright,
+  // because that is the signal a phone back on its own network can still see.
+  if (hoWatch && ap && Date.now() - hoWatch > 45000) $('hoStuck').style.display = '';
+
+  // Here rather than only in load(): the Clawdmeter tab's commands depend on
+  // s.mdns and s.ip, and both can change under a page left open.
+  renderCmds();
 }
 
 /* ======================= WIFI ======================= */
@@ -654,7 +779,7 @@ $('scanOut').addEventListener('click', e => {
   toast('Filled in — add the password');
 });
 $('hostname').addEventListener('input', e => {
-  $('hostPreview').textContent = e.target.value || 'clawdmeter';
+  $('hostPreview').textContent = e.target.value || 'clawd';
 });
 
 /* ======================= LOAD / SAVE ======================= */
@@ -662,7 +787,7 @@ function renderConfig(c) {
   CFG = c;
   renderWifi(c);
   $('hostname').value = c.hostname || '';
-  $('hostPreview').textContent = c.hostname || 'clawdmeter';
+  $('hostPreview').textContent = c.hostname || 'clawd';
   $('apSsid').value = c.apSsid || '';
   $('apPass').placeholder = c.apPassSet ? '(unchanged)' : '(open)';
 
@@ -702,6 +827,25 @@ function renderConfig(c) {
 
 $('bright').addEventListener('input', e => { $('brightVal').textContent = e.target.value; });
 
+// Hands over from "this hotspot" to "your network". The device is seconds from
+// dropping the AP, so this has to stay on screen, not expire like a toast while
+// the phone is busy rejoining a different network.
+function showHandoff(patch) {
+  // netBegin joins the strongest VISIBLE saved network, not the first row, so
+  // naming one is only honest when there is exactly one it could be.
+  const list = patch.wifi || [];
+  const name = list.length === 1 ? list[0].ssid : 'one of your saved networks';
+  $('hoNet').textContent = name;
+  $('hoNet2').textContent = name;
+  const host = (patch.hostname || ST.host || '').trim();
+  $('hoUrl').textContent = host ? `http://${host}.local` : 'the address on the device screen';
+  $('hoStuck').style.display = 'none';
+  $('handoff').style.display = '';
+  $('liveCard').style.display = 'none';   // its AP-mode advice is stale the moment we save
+  selectTab('status');
+  hoWatch = Date.now();
+}
+
 // Every save posts only its own keys. The device merges partially, so the Display
 // tab cannot clobber WiFi and vice versa.
 async function save(patch, btn, okMsg) {
@@ -713,8 +857,10 @@ async function save(patch, btn, okMsg) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
     });
-    toast(r.reboot ? 'Saved — rebooting to apply' : (okMsg || 'Saved'));
-    if (!r.reboot) setTimeout(load, 400);
+    // reboot is set only for a WiFi or hostname change (netFingerprint in Web.cpp),
+    // which is exactly the case where the page is about to lose the device.
+    if (r.reboot) showHandoff(patch);
+    else { toast(okMsg || 'Saved'); setTimeout(load, 400); }
   } catch (err) { toast('Save failed: ' + err.message); }
   btn.disabled = false; btn.textContent = prev;
 }
@@ -765,9 +911,38 @@ $('saveAuth').onclick = e => {
 
 /* ======================= CLAWDMETER TAB ======================= */
 function renderCmds() {
-  const host = location.host || 'clawdmeter.local';
-  $('cmdWin').textContent = `irm http://${host}/agent/install.ps1 | iex`;
-  $('cmdNix').textContent = `curl -fsSL http://${host}/agent/install.sh | sh`;
+  const ap = ST.mode === 'ap';
+  const dotLocal = (ST.host || 'clawd') + '.local';
+  // location.host is the address that just worked, seconds ago. Two exceptions: in
+  // AP mode it is 192.168.4.1, which stops existing once the device joins a real
+  // network; and a name another responder claimed resolves to their unit, so only
+  // the IP is certainly ours.
+  const host = ap ? dotLocal
+             : (ST.mdns === 'taken' && ST.ip) ? ST.ip
+             : (location.host || dotLocal);
+  $('apFirst').style.display = ap ? '' : 'none';
+  $('mdnsWarn').style.display = ST.mdns === 'taken' ? '' : 'none';
+  $('cmdTokWin').textContent = `setx CLAUDE_CODE_OAUTH_TOKEN "sk-ant-oat..."`;
+  $('cmdTokNix').textContent = `export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat..."`;
+  // --no-discover is load-bearing: discovery defaults to ON even when --push-to
+  // names a device, so without it one person's usage lands on every Clawdmeter in
+  // the room. And no --no-tray on these two: start-daemon.bat launches pythonw
+  // detached, start-daemon.sh nohups to /dev/null, so it would leave an invisible
+  // process with nowhere to look. The tray is the feedback here; --no-tray belongs
+  // on the console form, which does keep a window open.
+  // The leading .\ is not decoration (doubled in the source: a lone \ is eaten by
+  // the template literal). These commands carry arguments, so they have to be pasted
+  // into a terminal, and on Windows 10/11 that terminal is PowerShell, which does not
+  // resolve a bare command name from the current directory: without it the last step
+  // of the only instructions a recipient has fails as printed.
+  $('cmdRunWin').textContent = `.\\start-daemon.bat --push-to ${host} --no-discover`;
+  $('cmdRunNix').textContent = `./start-daemon.sh --push-to ${host} --no-discover`;
+  // The venv interpreter by path: install.bat/install.sh put the dependencies in
+  // .venv, and a bare `python` is routinely a different one that cannot import them.
+  $('cmdDbgWin').textContent =
+    `.venv\\Scripts\\python clawdmeter_daemon.py --no-tray --push-to ${host} --no-discover`;
+  $('cmdDbgNix').textContent =
+    `.venv/bin/python clawdmeter_daemon.py --no-tray --push-to ${host} --no-discover`;
   $('cmdPush').textContent =
     `curl -X POST http://${host}/api/usage \\\n  -d '{"s":42,"sr":118,"w":63,"wr":4200,"st":"allowed","ok":true}'`;
   const repo = ST.repo || 'https://github.com/Texterous/clawdmeter';
@@ -781,8 +956,8 @@ function renderPayload(m) {
        <div class="kv"><span>Status</span><b>${esc(m.status || '—')}</b></div>
        <div class="kv"><span>Received</span><b>${fmtAgo(m.ageSec)}</b></div>
        <div class="kv"><span>Last fetch</span><b>${m.error ? '<span class="pill bad">error</span>' : '<span class="pill ok">ok</span>'}</b></div>`
-    : `<p class="note">Nothing received yet. Run the installer above; the agent finds the
-        device over mDNS by itself.</p>`;
+    : `<p class="note">Nothing received yet. Work through the steps above — the numbers
+        appear here as soon as the first push lands.</p>`;
 }
 $('refreshBtn').onclick = async e => {
   e.target.disabled = true;
@@ -859,12 +1034,26 @@ $('factoryBtn').onclick = async () => {
 
 /* ======================= boot ======================= */
 async function load() {
+  // Claimed before the awaits, not after them. A first load that throws is ordinary
+  // (thirty setup hotspots in one room), and it used to leave this false — so the
+  // next successful load, typically the one 400 ms after a save, still counted as
+  // the first paint and pulled the user off the tab they had just saved from.
+  const firstPaint = !booted;
+  booted = true;
   try {
     const [c, s] = await Promise.all([api('/api/config'), api('/api/status')]);
     renderConfig(c);
-    renderStatus(s);
-    renderCmds();
+    renderStatus(s);          // calls renderCmds() at its tail
     renderPayload(s.meter);
+
+    // First paint only. MUST NOT move into renderStatus: poll() calls that every
+    // 5 s and would yank the tab out from under someone mid-typing. Strict ===
+    // false so a firmware that omits the key falls through to the default tab
+    // rather than being read as uncommissioned.
+    if (firstPaint) {
+      if (s.mode === 'ap') selectTab('wifi');                 // nothing else is possible yet
+      else if (s.commissioned === false) selectTab('meter');  // only the sender is left
+    }
   } catch (err) {
     toast('Could not reach the device: ' + err.message);
   }
@@ -877,7 +1066,12 @@ async function poll() {
   } catch {}
 }
 load();
-setInterval(poll, 5000);
+// Hoisted so the timer is addressable, but deliberately never cleared — not even
+// on the reboot after a WiFi save. poll() swallows its own errors (the bare catch
+// above; the "could not reach the device" toast belongs to load()), so a vanishing
+// AP is silent rather than a toast storm over the handoff card. Stopping it would
+// instead cost the failed-join detection, which needs to keep seeing mode 'ap'.
+let pollTimer = setInterval(poll, 5000);
 </script>
 </body>
 </html>

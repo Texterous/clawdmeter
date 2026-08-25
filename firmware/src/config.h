@@ -14,7 +14,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "clawdmeter"
-#define FW_VERSION  "0.2.1"
+#define FW_VERSION  "0.3.0"
 
 #define REPO_URL    "https://github.com/Texterous/clawdmeter"
 #define REPO_OWNER  "Texterous"
@@ -92,8 +92,12 @@
 // ---------------------------------------------------------------------------
 // Network timing (Net.cpp)
 // ---------------------------------------------------------------------------
-// Per-candidate association budget at boot. A network the scan just saw gets the
-// long window; one it did not (hidden SSID, or out of range) gets the short one.
+// Per-candidate association budget. A network the scan just saw gets the long
+// window; one it did not (hidden SSID, or out of range) gets the short one. These
+// apply to an AP-mode retry too: there used to be a shorter budget for that, to
+// cut the portal outage, and it could strand a unit whose credentials were CORRECT
+// but whose router needed longer. staConnect leaves early on a definitive failure
+// status instead, which is both faster for the bad case and safe for the slow one.
 #define WIFI_JOIN_SEEN_MS     15000UL
 #define WIFI_JOIN_UNSEEN_MS    8000UL
 
@@ -102,6 +106,12 @@
 // power-cycles the unit. The retry costs a scan plus one association attempt per
 // visible network, so keep it well above that.
 #define AP_RETRY_MS          120000UL
+
+// Thirty units in one room means the AP is somebody's only way in, so it gets a
+// quiet period rather than an instantaneous check before it is torn down for a
+// station retry: a phone drops off an internet-less hotspot as soon as its screen
+// locks, and that is not the same as nobody being there.
+#define AP_QUIET_MS          180000UL
 
 // While the station is down: how often to nudge the current network, and how
 // long to stay down before trying the next saved one. The nudge is a full
@@ -147,7 +157,12 @@
 // header rather than -D flags is deliberate: an SSID containing a space cannot
 // survive PlatformIO's flag splitting, and a credential in platformio.ini would
 // end up committed.
-#if defined(__has_include)
+//
+// A giveaway batch must not carry a venue credential: thirty units with a baked
+// SSID all fail to join anywhere else, which is exactly what the batch is for.
+// -D NO_PROVISION makes that a build target rather than "remember to move a
+// gitignored file before building", which is not a safeguard.
+#if defined(__has_include) && !defined(NO_PROVISION)
   #if __has_include("provision_local.h")
     #include "provision_local.h"
   #endif
@@ -162,11 +177,16 @@
 // ---------------------------------------------------------------------------
 // Defaults (first boot / factory reset)
 // ---------------------------------------------------------------------------
-// Both of these get the device's chip suffix appended (Settings::setDefaults),
-// so a batch of units never puts identical names in the air.
-#define DEFAULT_AP_SSID      "Clawdmeter-Setup"
+// Both names carry a fixed 4-hex chip suffix (Settings::setDefaults), so a batch
+// never puts identical names in the air. Short on purpose: "Clawd-a1b2" is 10
+// characters, which renders at text size 3 on the setup screen — the string a
+// recipient has to match against thirty near-identical hotspots is the last one
+// that should be shrunk to 6x8. It also never truncates in a phone's WiFi list.
+// The name does not have to explain itself: the panel prints "Join this WiFi:"
+// directly above it, and the portal it leads to is titled in full.
+#define DEFAULT_AP_SSID      "Clawd"
 #define DEFAULT_AP_PASS      ""              // empty => open AP
-#define DEFAULT_HOSTNAME     "clawdmeter"
+#define DEFAULT_HOSTNAME     "clawd"
 #define DEFAULT_BRIGHTNESS    90             // 0..100 %
 #define DEFAULT_HTTP_TIMEOUT  8000           // ms per request
 #define DEFAULT_USAGE_POLL_SEC 30            // only used if a pull URL is set

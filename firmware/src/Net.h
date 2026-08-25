@@ -16,3 +16,10 @@ bool     netConnected();  // STA associated with an IP
 String   netIP();         // current IP (STA or AP)
 String   netSSID();       // joined SSID (STA) or AP SSID
 int      netRSSI();       // STA signal, 0 in AP mode
+
+// True once the mDNS probe came back claimed: another responder on this link
+// already answers to <hostname>.local, so that name resolves to somebody else's
+// device and only our IP is certainly ours. Callers show the IP instead of the
+// name. Always false in AP mode, where no responder runs at all. See onMdnsProbe
+// in Net.cpp for why the answer is "report it" rather than "rename".
+bool     netMdnsTaken();

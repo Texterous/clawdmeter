@@ -31,7 +31,29 @@ static inline void platformTimeBegin(const char* tz, const char* s1, const char*
   configTime(tz, s1, s2);     // ESP8266 core: TZ-string overload, sets TZ + starts SNTP
 }
 static inline void platformMdnsUpdate() { MDNS.update(); }
-static inline void platformAnalogWriteInit(uint8_t pin) { (void)pin; analogWriteRange(255); }
+
+// The frequency matters as much as the range. The core defaults to 1 kHz, this
+// board's backlight is a real PWM'd LED (Board.h: active-low), and at the default
+// brightness of 90 the pin sits HIGH for 26/255 of every period — a ~100 us hard-
+// off notch once a millisecond. That is below IEEE 1789's 1250 Hz no-risk floor
+// and it bands in every phone photo of the panel.
+//
+// 8 kHz, not the 60 kHz the core clamps to: analogWrite here is a timer1 NMI soft
+// PWM, so every edge is an interrupt. 8 kHz is ~16k edges/s, about 4% of an 80 MHz
+// core that is also blasting 40 MHz SPI and running WiFi; 30 kHz is ~14%, and its
+// 2.5k-cycle period is short enough that the top of the brightness range falls
+// under the ISR's own latency and stops being a duty cycle at all. 8 kHz is
+// already 6.4x the no-risk floor. If artefacts survive, try 4000 or 16000.
+//
+// The endpoints cost nothing at any frequency: the core short-circuits duty 0 and
+// full scale to a plain digitalWrite, and the active-low inversion in
+// gfxSetBrightness maps brightness 100 onto duty 0 — so "fully lit" is a DC level
+// with no NMI at all, and brightness 0 is the other one.
+static inline void platformAnalogWriteInit(uint8_t pin) {
+  (void)pin;
+  analogWriteRange(255);
+  analogWriteFreq(8000);
+}
 static inline bool platformScanIsOpen(int i) { return WiFi.encryptionType(i) == ENC_TYPE_NONE; }
 static inline String platformUpdateError() { return Update.getErrorString(); }
 static inline uint32_t platformChipId() { return ESP.getChipId(); }

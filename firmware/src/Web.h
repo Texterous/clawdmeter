@@ -1,4 +1,4 @@
-// Web.h — HTTP config UI, REST API, agent bootstrap, and the OTA endpoint.
+// Web.h — HTTP config UI, REST API, and the OTA endpoint.
 #pragma once
 #include <Arduino.h>
 #include "Settings.h"

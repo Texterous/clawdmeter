@@ -92,6 +92,13 @@ struct Settings {
   // --- Active feature. One mode today; kept so a second can be added. ---
   uint8_t mode;
 
+  // A usage payload has arrived at least once. Until it has, the screen shows the
+  // commissioning address instead of an empty meter — the recipient's remaining
+  // step is on their computer, and this is the only place they can be told so.
+  // Written by loop() on the first payload, read straight from the file by
+  // loadSettings; settingsApplyJson deliberately ignores it (see Settings.cpp).
+  bool commissioned;
+
   // --- Shared HTTP / display ---
   uint16_t httpTimeout;       // ms
   uint8_t  brightness;        // 0..100 %

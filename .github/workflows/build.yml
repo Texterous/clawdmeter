@@ -25,9 +25,15 @@ jobs:
 
       # The generated headers are gitignored, so this also proves the generators
       # run from a clean checkout.
-      - name: Build all three images
+      #
+      # ultra_giveaway is the image that actually reaches recipients, so it is built
+      # here even though provision_local.h is gitignored and CI's ultra_slim already
+      # compiles the same HAS_PROVISION==0 path. Without it, a typo inside
+      # [env:ultra_giveaway] would go unnoticed until a bench run with thirty units
+      # waiting — a build target CI never exercises is a build target that rots.
+      - name: Build all four images
         working-directory: firmware
-        run: pio run -e ultra_slim -e ultra -e loader
+        run: pio run -e ultra_slim -e ultra -e ultra_giveaway -e loader
 
       # Determinism check: the generators must leave byte-identical output on a
       # second run, or "unchanged HTML" would produce noisy diffs and rebuilds.
@@ -42,11 +48,18 @@ jobs:
       # The slim image exists to fit through the stock Ultra OTA slot. If it
       # grows past this, the one-step install stops working and nobody notices
       # until a batch run fails, so fail here instead.
+      #
+      # ultra_slim is the conservative bound for both gated images: ultra_giveaway
+      # is the same build minus the baked-credential literals, so it is always the
+      # smaller of the two. The 4,288 B between this gate and the 524,288 B stock
+      # ceiling is deliberate slack — being installable in one web upload IS the
+      # distribution mechanism, so raise this number only with a reason.
       - name: Slim image size budget
         working-directory: firmware
         run: |
           size=$(stat -c%s .pio/build/ultra_slim/firmware.bin)
-          echo "slim image: $size B"
+          give=$(stat -c%s .pio/build/ultra_giveaway/firmware.bin)
+          echo "slim image: $size B (giveaway: $give B)"
           limit=520000
           if [ "$size" -gt "$limit" ]; then
             echo "::error::slim image is $size B, over the $limit B budget."
@@ -57,8 +70,8 @@ jobs:
       - name: Report sizes
         working-directory: firmware
         run: |
-          for e in ultra_slim ultra loader; do
-            printf '%-12s %8d B\n' "$e" "$(stat -c%s .pio/build/$e/firmware.bin)"
+          for e in ultra_slim ultra ultra_giveaway loader; do
+            printf '%-15s %8d B\n' "$e" "$(stat -c%s .pio/build/$e/firmware.bin)"
           done
 
       - uses: actions/upload-artifact@v4

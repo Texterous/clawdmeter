@@ -13,8 +13,11 @@ Status · Wifi · Display · Clawdmeter · System
 
 ## What it does
 
-A small agent on your machine reads your Claude Code rate-limit state and POSTs it
-to the device. There are two screens, picked in the web UI:
+A small program on your machine reads your Claude Code rate-limit state and POSTs
+it to the device — today that is
+[`giovi321/clawdmeter-daemon`](https://github.com/giovi321/clawdmeter-daemon),
+which drives this firmware unchanged. There is no Clawdmeter-branded agent; see
+[agent/](agent/) for why. There are two screens, picked in the web UI:
 
 - **Usage meters** — the 5-hour and 7-day windows, the countdown to each reset, and
   an animated mascot whose mood tracks your burn rate.
@@ -45,16 +48,17 @@ and there is no download-mode rescue if a flash goes wrong. Read
 
 Other SmallTV variants are not supported. This is one firmware for one board.
 
-## Two images, and why
+## The images, and why
 
 ```
-pio run -e ultra_slim     # ~508 KB · no TLS · installs on a factory-fresh unit
-pio run -e ultra          # ~623 KB · adds HTTPS + GitHub self-update
-pio run -e loader         # ~317 KB · two-step install fallback
+pio run -e ultra_slim      # 517,680 B · no TLS · installs on a factory-fresh unit
+pio run -e ultra           # 633,408 B · adds HTTPS + GitHub self-update
+pio run -e loader          # 317,424 B · two-step install fallback
+pio run -e ultra_giveaway  # 517,632 B · ultra_slim with provisioning compiled out
 ```
 
 The stock Ultra firmware reserves most of the flash for image storage, so its OTA
-updater rejects anything much over ~512 KB. `ultra_slim` drops the TLS stack
+updater rejects anything much over 512 KiB. `ultra_slim` drops the TLS stack
 entirely — usage is *pushed* to the device, so nothing outbound needs TLS — which
 saves 115 KB and is what makes a one-step install possible at all. It is fully
 functional: a unit can be handed out having only ever seen the slim image.
@@ -62,6 +66,14 @@ functional: a unit can be handed out having only ever seen the slim image.
 `ultra` adds HTTPS so recipients get fixes without touching a laptop. It is
 installed *over* the slim image through the device's own `/update`, which is not
 subject to stock's limit.
+
+`ultra_giveaway` is `ultra_slim` with `-D NO_PROVISION`, and it exists because a
+batch handed to strangers must **not** carry a network credential. A baked SSID is
+a convenience for units you keep and a defect for units you give away: thirty of
+them all try to join a network that is not at the venue, and none of them opens the
+setup hotspot its recipient needs. Making that a build target rather than
+"remember to move a gitignored file first" is the point. See
+[provision/](provision/).
 
 Every call site that could pull BearSSL into the link sits behind `WITH_TLS` in
 [`firmware/src/config.h`](firmware/src/config.h). One unguarded reference — even
@@ -75,13 +87,14 @@ cd firmware
 pio run -e ultra_slim
 ```
 
-`webui.h` and `agent_install.h` are generated from `web/` before every build by
-`tools/pre_build.py`, so a stale UI cannot ship. Both generators are deterministic:
-unchanged sources produce byte-identical headers.
+`webui.h` is generated from `web/webui.html` before every build by
+`tools/pre_build.py`, so a stale UI cannot ship. The generator is deterministic:
+an unchanged source produces a byte-identical header.
 
 To bake WiFi credentials into a batch image, write `firmware/src/provision_local.h`
-(gitignored — see [provision/](provision/)). A freshly flashed unit then rejoins the
-venue network by itself and nobody touches a setup screen on event day.
+(gitignored — see [provision/](provision/)). A freshly flashed unit then rejoins
+that network by itself. Do this only for units you are keeping; build
+`ultra_giveaway` for the ones you are not.
 
 ## Install
 
@@ -89,7 +102,13 @@ venue network by itself and nobody touches a setup screen on event day.
 curl -F "firmware=@firmware.bin" http://<device>/update
 ```
 
-or use the System tab. Then open `http://<hostname>.local` and set up WiFi.
+or use the System tab.
+
+A unit with no saved network says so on its own screen — `SET ME UP`, the name of
+the hotspot it is broadcasting, and the address to open once you have joined it. So
+there is nothing to look up and nothing to keep: join that hotspot, pick your own
+network in the portal, and the device puts the next address on its panel and leaves
+it there until something has actually pushed to it.
 
 ## Your device, your firmware
 
@@ -112,7 +131,6 @@ See [docs/flash-something-else.md](docs/flash-something-else.md).
 | `POST /api/usage` | the push endpoint (unauthenticated by design) |
 | `GET`/`POST /api/export`,`/api/import` | settings backup; also the provisioning hook |
 | `POST /api/reboot`, `/api/factory`, `/api/refresh` | |
-| `GET /agent/install.ps1`, `/agent/install.sh` | agent bootstrap, served offline |
 | `POST /update` | firmware upload |
 
 Push contract:
@@ -126,7 +144,11 @@ curl -X POST http://<device>/api/usage \
 `s`/`w` are the 5-hour and 7-day percentages, `sr`/`wr` the minutes until each
 resets, `st` a status string. The original six keys are byte-compatible with
 [`giovi321/clawdmeter-daemon`](https://github.com/giovi321/clawdmeter-daemon), so
-that daemon drives this firmware unchanged.
+that daemon drives this firmware unchanged. Run it as
+`--push-to <device> --no-discover`: the endpoint is unauthenticated by design and
+the firmware advertises `_clawdmeter._tcp`, so a daemon left with discovery on
+writes to **every** unit it can see, not just yours. `--push-to` alone does not
+turn discovery off. See [agent/](agent/).
 
 `sess` and `ns` feed the session board and are optional: each row is `n` (name,
 ≤12 chars), `s` (`w`orking / `b`locked / `a`waiting) and `t` (minutes in that
@@ -137,11 +159,11 @@ too old, which is a different thing from "nothing is running".
 ## Repository layout
 
 ```
-firmware/     PlatformIO project — three envs, one board
-  web/        webui.html + the agent bootstrap scripts (sources of truth)
+firmware/     PlatformIO project — four envs, one board
+  web/        webui.html, the source of truth for the web UI
   tools/      code generators, run automatically before each build
-provision/    batch flashing and verification for a giveaway run
-agent/        the one-command usage agent
+provision/    batch flashing and verification — giveaway and staffed runs
+agent/        why there is no agent, and how to run the daemon that works
 docs/         flashing, recovery, and the event runbook
 ```
 

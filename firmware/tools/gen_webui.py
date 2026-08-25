@@ -10,13 +10,21 @@ source of truth — edit it, then rerun:
 Runs automatically before every build (see tools/pre_build.py), so a stale
 webui.h cannot ship.
 
-Python 3 stdlib only. Output is deterministic (gzip header mtime=0), so
-re-running without changes leaves webui.h byte-identical and the diff empty.
+Comments are stripped on the way in (see strip_comments). The HTML is the only
+documentation this project has for the portal's copy, and every claim in it had to
+be checked against the daemon's source — so it is heavily commented on purpose,
+and the device should not pay flash for prose no browser reads. The slim image has
+about 100 bytes of room under the CI gate; the comments are 2.4 KB of it.
+
+Python 3 stdlib only. Output is deterministic (gzip header mtime=0, and the strip
+is a pure function of the source), so re-running without changes leaves webui.h
+byte-identical and the diff empty.
 
 Derived from giovi321/smalltv-mod (WTFPL).
 """
 import gzip
 import pathlib
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -37,6 +45,46 @@ static const uint8_t WEBUI_HTML_GZ[] PROGMEM = {
 """
 
 
+def strip_comments(text: str) -> str:
+    """Drop comment text, keeping every line break so line numbers still match.
+
+    Deliberately conservative, because this page is the only instructions a
+    recipient gets and a clever regex that eats one character of real markup would
+    be discovered by them, not by us:
+
+    * `//` comments are removed only when the line STARTS with them (leading
+      whitespace allowed) and only inside the single <script> block. That cannot
+      touch a `//` inside a string, a template literal or a URL, since none of
+      those can be the first thing on a line here — asserted below rather than
+      assumed. A trailing `// like this` is left alone; it is not worth the risk.
+    * HTML comments go whole. There are no `<!--` sequences inside the script, so
+      no JS string can be clipped.
+
+    Each removed line becomes an empty line, so a browser console reporting
+    "webui.html:812" still points at line 812 of web/webui.html. Runs of newlines
+    cost almost nothing once gzipped (63 B for all of them).
+    """
+    try:
+        s_lo = text.count("\n", 0, text.index("<script>")) + 1
+        s_hi = text.count("\n", 0, text.index("</script>")) + 1
+    except ValueError:                      # no script block: nothing to strip
+        s_lo = s_hi = 0
+
+    out = []
+    for i, line in enumerate(text.split("\n"), 1):
+        if s_lo <= i <= s_hi and re.match(r"^\s*//", line):
+            out.append("")
+        else:
+            out.append(line)
+    stripped = "\n".join(out)
+
+    # Keep the line count identical here too, so the numbers above hold.
+    stripped = re.sub(r"[ \t]*<!--.*?-->[ \t]*",
+                      lambda m: "\n" * m.group(0).count("\n"),
+                      stripped, flags=re.S)
+    return stripped
+
+
 def emit(blob: bytes) -> str:
     lines = [HEADER]
     for i in range(0, len(blob), 16):
@@ -52,7 +100,19 @@ def main() -> int:
         print(f"error: {SRC} not found", file=sys.stderr)
         return 1
     raw = SRC.read_bytes()
-    blob = gzip.compress(raw, compresslevel=9, mtime=0)
+    src = raw.decode("utf-8")
+
+    # The one assumption strip_comments makes, checked on every run rather than
+    # trusted: no template literal may contain a line that starts with `//`, or
+    # removing that line would silently change a command the portal prints.
+    for lit in re.findall(r"`[^`]*`", src, flags=re.S):
+        if re.search(r"^\s*//", lit, flags=re.M):
+            print("error: a template literal contains a //-leading line; "
+                  "strip_comments would corrupt it", file=sys.stderr)
+            return 1
+
+    served = strip_comments(src).encode("utf-8")
+    blob = gzip.compress(served, compresslevel=9, mtime=0)
     text = emit(blob)
 
     # Only write when the content actually changed, so the file mtime does not
@@ -62,8 +122,8 @@ def main() -> int:
         return 0
 
     OUT.write_text(text, encoding="utf-8", newline="\n")
-    print(f"{SRC.name}: {len(raw)} B -> gzip {len(blob)} B "
-          f"({100 * len(blob) / len(raw):.1f}%) -> {OUT.name}")
+    print(f"{SRC.name}: {len(raw)} B -> {len(served)} B without comments "
+          f"-> gzip {len(blob)} B ({100 * len(blob) / len(raw):.1f}%) -> {OUT.name}")
     return 0
 
 

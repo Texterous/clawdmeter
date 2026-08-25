@@ -1,5 +1,7 @@
 {
-  "_comment": "Settings applied to every unit in the batch, plus per-unit overrides. flash.ps1 POSTs this to /api/import, which is a partial merge, so anything omitted keeps its default and the baked WiFi row is never touched.",
+  "_comment": "Settings applied to every unit in a STAFFED batch, plus per-unit overrides. flash.ps1 POSTs this to /api/import, which is a partial merge, so anything omitted keeps its default and the baked WiFi row is never touched. Keys starting with _ are notes and are not sent.",
+
+  "_giveaway": "None of this reaches a giveaway batch. A unit flashed with 'flash.ps1 -Giveaway' has no saved network by design, so it is on its own setup hotspot and unreachable over the LAN from the moment it reboots. Those units ship on firmware defaults and their recipients set brightness and timezone themselves in the web UI.",
 
   "brightness": 85,
   "autoBrightness": false,
@@ -16,7 +18,7 @@
   },
 
   "units": {
-    "_comment": "Per-unit overrides, keyed by the -Unit argument. hostname is set automatically to clawdmeter-<Unit>; add entries here only for a unit that needs something different (a dimmer screen for a demo table, a rotated one for a shelf).",
+    "_comment": "Per-unit overrides, keyed by the -Unit argument. hostname and apSsid are both set automatically to clawd-<Unit> and Clawd-<Unit>, so the name the unit answers to and the hotspot name it broadcasts agree; do not set either here unless you mean to break that. Add entries only for a unit that needs something different (a dimmer screen for a demo table, a rotated one for a shelf).",
     "01": {},
     "02": {}
   }

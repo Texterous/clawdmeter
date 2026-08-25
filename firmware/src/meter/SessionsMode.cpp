@@ -101,6 +101,50 @@ static void drawFooter(Arduino_GFX* gfx, const UsageData& u) {
   else if (fw > 0) gfx->fillRect(bx, by, fw, bh, fill);
 }
 
+// FNV-1a over the values the board actually draws, in the form it draws them.
+// A digest rather than a kept copy because the board is six variable-length rows:
+// four bytes of state against a hundred, and the names go in as the strings that
+// get printed rather than as their buffers, whose tail past the NUL is left over
+// from a longer name.
+//
+// Diffing this instead of lastOkMs is the fix for the black flash. The daemon
+// posts every ~20 s whether or not anything moved, UsageClient stamps lastOkMs on
+// every successful parse, and drawBoard opens with a full-screen clear — so every
+// post was a visible flash of an unchanged board. Nothing here is finer than a
+// minute, so a live board still repaints about once a minute, which is when the
+// row ages and the countdown actually move.
+//
+// The invariant is that every value reaching the panel is mixed in below. Missing
+// one is bounded rather than silent — the row ages tick every minute and drag the
+// whole digest with them — but it is still a bug, so mix it in.
+static uint32_t fnvBytes(uint32_t f, const void* p, size_t n) {
+  const uint8_t* b = (const uint8_t*)p;
+  while (n--) f = (f ^ *b++) * 16777619u;
+  return f;
+}
+
+static uint32_t boardFingerprint(const UsageData& u) {
+  uint32_t f = 2166136261u;
+  // Picks the screen (board / "no session data" / "nothing running"), the header
+  // count and its colour, and every count in the footer summary.
+  const uint8_t hdr[3] = { (uint8_t)u.boardValid, u.sessionRows, u.sessionLive };
+  f = fnvBytes(f, hdr, sizeof(hdr));
+
+  for (uint8_t i = 0; i < u.sessionRows; i++) {
+    const SessionInfo& si = u.sessions[i];
+    f = fnvBytes(f, si.name, strlen(si.name));
+    const uint8_t row[3] = { si.state, (uint8_t)si.mins, (uint8_t)(si.mins >> 8) };
+    f = fnvBytes(f, row, sizeof(row));
+  }
+
+  // Footer 5h window: the printed percentage, the bar's fill width in pixels
+  // (224 px, so finer than the number above it), and the fill colour's band.
+  float p = constrain(u.sessionPct, 0.0f, 100.0f);
+  const uint8_t foot[3] = { (uint8_t)lroundf(p), (uint8_t)(int)(224 * p / 100.0f),
+                            (uint8_t)(p >= 90 ? 2 : p >= 75 ? 1 : 0) };
+  return fnvBytes(f, foot, sizeof(foot));
+}
+
 static void drawBoard(const UsageData& u) {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
@@ -158,7 +202,6 @@ static void drawStale(bool error) {
 // ---- DisplayMode ----------------------------------------------------------
 void SessionsMode::begin(const Settings& s) {
   usageInit(s);
-  renderedOk_ = 0xFFFFFFFF;
   showedStale_ = false;
   needRender_ = true;
 }
@@ -166,7 +209,6 @@ void SessionsMode::begin(const Settings& s) {
 void SessionsMode::invalidate(const Settings& s) {
   needRender_ = true;
   showedStale_ = false;
-  renderedOk_ = 0xFFFFFFFF;
   usageInit(s);
   usageForceRefresh();
 }
@@ -181,11 +223,15 @@ void SessionsMode::service(const Settings& s) {
 
   if (usageFresh(staleMs)) {
     if (showedStale_) { showedStale_ = false; needRender_ = true; }
-    if (u.lastOkMs != renderedOk_) { renderedOk_ = u.lastOkMs; needRender_ = true; }
-    if (needRender_) { drawBoard(u); needRender_ = false; }
-  } else if (!showedStale_) {
+    uint32_t fp = boardFingerprint(u);
+    if (fp != renderedFp_) needRender_ = true;
+    if (needRender_) { drawBoard(u); renderedFp_ = fp; needRender_ = false; }
+  } else if (!showedStale_ || u.error != staleError_) {
+    // Also repainted when the REASON changes: a pull-mode unit goes quiet first
+    // ("waiting...") and only learns "daemon error" on the first failed poll after
+    // that, which is the half of the message worth reading.
     showedStale_ = true;
-    renderedOk_ = 0xFFFFFFFF;
+    staleError_  = u.error;
     drawStale(u.error);
   }
 }

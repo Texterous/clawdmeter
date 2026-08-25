@@ -163,12 +163,19 @@ void Settings::setDefaults() {
   // would otherwise put thirty identical open networks in the air, with no way
   // for anyone to tell which unit they are configuring. A name saved in
   // config.json overrides either.
-  String unitId = String(platformChipId() & 0xFFFF, HEX);
+  //
+  // %04x, not String(v, HEX): that helper does not zero-pad, so the suffix used
+  // to be 1-4 characters and every unit in a batch had a differently sized name.
+  // A fixed width makes the panel layout provably safe for every unit, and makes
+  // "the four characters after the dash" something a person can be told to check.
+  char unitId[5];
+  snprintf(unitId, sizeof(unitId), "%04x", (unsigned)(platformChipId() & 0xFFFF));
   apSsid   = String(DEFAULT_AP_SSID) + "-" + unitId;
   apPass   = DEFAULT_AP_PASS;
   hostname = String(DEFAULT_HOSTNAME) + "-" + unitId;
 
   mode = DEFAULT_MODE;
+  commissioned = false;   // nothing has ever been pushed to this unit
   httpTimeout = DEFAULT_HTTP_TIMEOUT;
 
   brightness = DEFAULT_BRIGHTNESS;
@@ -201,6 +208,11 @@ bool loadSettings(Settings& s) {
   if (err) return false;
 
   settingsApplyJson(s, doc.as<JsonObjectConst>());
+  // Read straight from the file rather than through settingsApplyJson: that path
+  // is shared with POST /api/config and /api/import, and a provisioning import
+  // or a restored backup must not be able to declare a unit commissioned and skip
+  // the one screen that tells a recipient what to do. Only our own flash copy may.
+  s.commissioned = doc["commissioned"] | false;
   return true;
 }
 
@@ -238,6 +250,7 @@ void settingsToJson(const Settings& s, JsonObject root, bool includeSecrets) {
   if (includeSecrets) root["apPass"] = s.apPass;
 
   root["mode"]              = (s.mode == MODE_SESSIONS) ? "sessions" : "usage";
+  root["commissioned"]      = s.commissioned;
   root["httpTimeout"]       = s.httpTimeout;
   root["brightness"]        = s.brightness;
   root["autoBrightness"]    = s.autoBrightness;
@@ -288,6 +301,11 @@ void settingsApplyJson(Settings& s, JsonObjectConst root) {
     if      (!strcmp(m, "usage"))    s.mode = MODE_USAGE;
     else if (!strcmp(m, "sessions")) s.mode = MODE_SESSIONS;
   }
+  // "commissioned" is emitted by settingsToJson but deliberately NOT read here.
+  // This function serves POST /api/config and POST /api/import, so reading it
+  // would let a provisioning script or a hand-written blob declare a unit
+  // commissioned and skip the commissioning screen. loadSettings reads the key
+  // directly from our own file instead.
   if (root["httpTimeout"].is<int>())        s.httpTimeout = constrain((int)root["httpTimeout"], 1000, 20000);
   if (root["brightness"].is<int>())         s.brightness = constrain((int)root["brightness"], 0, 100);
   if (root["autoBrightness"].is<bool>())    s.autoBrightness = root["autoBrightness"];

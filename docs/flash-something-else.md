@@ -29,15 +29,20 @@ the next boot, so a rejected or interrupted upload leaves you exactly where you 
 ## The free-space ceiling
 
 ESP8266 OTA caps an uploaded image at the free flash *above* the running sketch,
-not at the partition size. With the ~508 KB slim image running you have roughly
-530 KB of headroom — so **upstream's 705 KB `smalltv-mod-firmware.bin` cannot be
-uploaded directly.** You will get the size refusal.
+not at the partition size. On a 4M1M layout that free space runs from the sketch up
+to the filesystem at `0x300000`, so with the 517,680 B slim image running
+`/update` accepts about **2.5 MB** — which means **upstream's 705 KB
+`smalltv-mod-firmware.bin` uploads directly, no step-down needed.** (This page
+used to claim ~530 KB and therefore claim the opposite. That figure belongs to a
+4M3M layout, which this project does not use; the loader detour it sent people on
+cost two extra OTA cycles per unit for nothing, on a board where a bad flash means
+opening the case.)
 
-The way through is to step down via the loader, which is small enough to fit under
-any of these ceilings:
+The loader step-down still exists, but only for a *stock* firmware whose updater
+refuses the upload — that is stock's limit, not the board's:
 
 ```
-current firmware  --/update-->  loader (317 KB)  --/update-->  anything up to ~1 MB
+stock firmware  --/update-->  loader (317 KB)  --/update-->  anything up to ~2.8 MB
 ```
 
 The loader is a WiFi client plus an OTA page and nothing else, so once it is running
@@ -83,7 +88,8 @@ esptool --chip esp8266 --port <PORT> write_flash 0x0 FW-Smalltv-Ultra-V9.0.31.bi
 
 - **[upstream smalltv-mod](https://github.com/giovi321/smalltv-mod)** — a superset
   of this one: stock ticker, plane radar, Home Assistant screens. Its ESP8266 image
-  is 705 KB, so go via the loader.
+  is 705 KB, which fits `/update` directly from Clawdmeter (see the free-space
+  ceiling above); the loader is only needed if you are coming from stock.
 - **[ESPHome](https://devices.esphome.io/devices/geekmagic-ultra/)** — has a
   documented config for this board.
 - **Tasmota** — works; you will need to configure the ST7789 pins yourself. They

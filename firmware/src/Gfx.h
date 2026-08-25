@@ -41,7 +41,13 @@ Arduino_GFX* gfxDev();                 // shared draw target for feature rendere
 
 int     gfxTextW(const char* s, uint8_t size);
 void    gfxDrawCentered(const char* s, int y, uint8_t size, uint16_t color);
+// Largest size that fits, never below 1. For lines that cannot be dropped: 6x8
+// beats nothing, even when 6x8 is barely readable.
 uint8_t gfxFitSize(const char* s, int maxW, uint8_t maxSize);
+// Same, but returns 0 when even minSize overflows maxW, so the caller can drop
+// or truncate the line instead of drawing something illegible. Use this for any
+// line the screen can live without.
+uint8_t gfxFitSizeMin(const char* s, int maxW, uint8_t maxSize, uint8_t minSize);
 
 // ---- Shared boot / status / diagnostic screens ----------------------------
 // Brand splash: the Texterous mark (src/splash/logo.h) over a caption. This is
@@ -52,7 +58,9 @@ uint8_t gfxFitSize(const char* s, int maxW, uint8_t maxSize);
 void gfxSplash(const char* caption);
 void gfxSplashCaption(const char* caption);
 void gfxBoot(const char* line1, const char* line2);
-void gfxApInfo(const char* ssid, const char* pass, const char* ip);
+// Setup mode. `host` is the mDNS name the unit will answer to once it is on a
+// real network — the address a recipient needs AFTER this screen is gone, which
+// is the one thing the old three-argument version could not tell them.
+void gfxApInfo(const char* ssid, const char* pass, const char* ip, const char* host);
 void gfxStaInfo(const char* ssid, const char* ip, const char* host);
-void gfxMessage(const char* title, const char* msg, uint16_t titleColor);
 void gfxCrash(const char* epc, const char* addr, const char* ip);  // safe-mode diag

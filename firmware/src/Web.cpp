@@ -1,4 +1,4 @@
-// Web.cpp — HTTP config UI, REST API, agent bootstrap, and the OTA endpoint.
+// Web.cpp — HTTP config UI, REST API, and the OTA endpoint.
 //
 // /update deliberately accepts ANY image that fits: this firmware, upstream
 // smalltv-mod, ESPHome, Tasmota, or GeekMagic's stock build. Recipients own
@@ -12,9 +12,7 @@
 #include "Web.h"
 #include "Platform.h"
 #include <ArduinoJson.h>
-#include <LittleFS.h>
 #include "webui.h"
-#include "agent_install.h"
 #include "Net.h"
 #include "Gfx.h"
 #include "OtaUpdate.h"
@@ -73,23 +71,6 @@ static void handleRoot() {
   server.send_P(200, "text/html", (PGM_P)WEBUI_HTML_GZ, WEBUI_HTML_GZ_LEN);
 }
 
-// ---- agent bootstrap installers -------------------------------------------
-// Served from the device because the machine that needs them may be joined to
-// the setup AP, with no route to the internet and therefore no way to reach a
-// GitHub release. These are a few KB of shell that fetch the real agent once
-// the machine is back online. Not behind the password: they are public scripts
-// with no device state in them, and the whole point is that they are reachable
-// with one command before anything is configured.
-static void handleInstallPs1() {
-  server.sendHeader("Content-Encoding", "gzip");
-  server.send_P(200, "text/plain", (PGM_P)AGENT_INSTALL_PS1_GZ, AGENT_INSTALL_PS1_GZ_LEN);
-}
-
-static void handleInstallSh() {
-  server.sendHeader("Content-Encoding", "gzip");
-  server.send_P(200, "text/plain", (PGM_P)AGENT_INSTALL_SH_GZ, AGENT_INSTALL_SH_GZ_LEN);
-}
-
 static void handleGetConfig() {
   if (!requireAuth()) return;
   JsonDocument doc;
@@ -116,6 +97,15 @@ static void handleStatus() {
   o["ssid"] = netSSID();
   o["ip"] = netIP();
   o["host"] = S->hostname;
+  // Has anything ever been pushed here? The portal opens on the Clawdmeter tab
+  // when the answer is no, because setting up the sender is then the only step
+  // left and the device cannot do it for them.
+  o["commissioned"] = S->commissioned;
+  // Whether <hostname>.local is ours to hand out. "taken" means another responder
+  // on this network claimed it first, so that name resolves to somebody else's
+  // unit and the portal must print its daemon command with the IP instead. No
+  // responder runs in AP mode, hence the third state rather than a bool.
+  o["mdns"] = (netMode() == NET_AP) ? "off" : (netMdnsTaken() ? "taken" : "ok");
   o["rssi"] = netRSSI();
   o["heap"] = ESP.getFreeHeap();
   o["maxblk"] = platformMaxFreeBlock();     // largest contiguous block
@@ -223,15 +213,28 @@ static void handleFactory() {
   scheduleReboot(400);
 }
 
-// Full settings backup: stream the persisted config.json verbatim. It includes
-// the WiFi passwords — same trust domain as typing them into this page.
+// Full settings backup. This used to stream /config.json verbatim, passwords and
+// all, on the reasoning that reading the backup is the same trust domain as typing
+// the passwords into this page. It is not: auth is off by default, the setup AP is
+// open, and the person holding this page may be whoever joined the wrong unit out
+// of thirty identical hotspots — or anyone else on a venue LAN. So the secrets
+// only travel when the requester actually proved they may see them.
+//
+// A secretless backup still restores everything onto the unit it came from: a
+// blank password means "keep the stored one" throughout settingsApplyJson, and the
+// omitted apPass/auth.pass keys are simply not applied. What it costs is carrying
+// a password from one unit to another, which is exactly the capability that was
+// leaking. Turn on System -> Access and the full backup comes back.
 static void handleExport() {
   if (!requireAuth()) return;
-  File f = LittleFS.open("/config.json", "r");
-  if (!f) { server.send(404, "text/plain", "no config saved yet"); return; }
+  // requireAuth() has already answered a failed challenge, so reaching here with
+  // a password configured means it was satisfied.
+  bool trusted = S->auth.enabled && S->auth.pass.length() > 0;
+  JsonDocument doc;
+  JsonObject root = doc.to<JsonObject>();
+  settingsToJson(*S, root, /*includeSecrets=*/trusted);
   server.sendHeader("Content-Disposition", "attachment; filename=clawdmeter-config.json");
-  server.streamFile(f, "application/json");
-  f.close();
+  sendJson(doc);
 }
 
 // Restore a backup: apply everything, persist, reboot (WiFi/hostname may change).
@@ -402,18 +405,23 @@ void webPortalBegin(Settings& settings) {
   server.on("/api/checkupdate", HTTP_GET, handleCheckUpdate);
   server.on("/api/selfupdate", HTTP_POST, handleSelfUpdate);
 #endif
-  server.on("/agent/install.ps1", HTTP_GET, handleInstallPs1);
-  server.on("/agent/install.sh", HTTP_GET, handleInstallSh);
+  // No /agent/install.* routes. The scripts they served fetched a release asset
+  // from a repository that has never published a release, so a recipient's very
+  // first command could only ever fail — with a message about the network, at
+  // that. The install steps live in the portal's Clawdmeter tab instead, where a
+  // phone can read them and where they can be corrected without reflashing
+  // thirty units. Do not re-add these without an actual release behind them.
   server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateUpload);
 
   // Content-Length is not collected by default; the /update size guard needs it.
   server.collectHeaders("Content-Length");
 
-  // Common captive-portal probe endpoints
-  server.on("/generate_204", handleNotFound);
-  server.on("/gen_204", handleNotFound);
-  server.on("/hotspot-detect.html", handleNotFound);
-  server.on("/connecttest.txt", handleNotFound);
+  // Captive-portal probes: /generate_204 and /gen_204 (Android), /hotspot-detect
+  // .html (iOS, macOS), /connecttest.txt and /ncsi.txt (Windows). None of them
+  // needs a route of its own — ESP8266WebServer's _handleRequest falls through to
+  // the not-found handler for every URI no registered handler claimed, so this one
+  // line already answers all of them, and any probe path a future OS invents.
+  // They used to be registered explicitly and pointed at this same function.
   server.onNotFound(handleNotFound);
 
   server.begin();
