@@ -1,12 +1,18 @@
 {
   "name": "clawd",
-  "description": "Send your Claude Code usage to a Clawdmeter desk display over your local network.",
-  "version": "0.3.0",
+  "description": "Show your live Claude Code sessions on a Clawdmeter desk display.",
+  "version": "0.3.1",
   "author": {
     "name": "Texterous"
   },
   "homepage": "https://github.com/Texterous/clawdmeter",
   "repository": "https://github.com/Texterous/clawdmeter",
   "license": "MIT",
-  "keywords": ["clawdmeter", "usage", "smalltv", "hardware", "statusline"]
+  "keywords": [
+    "clawdmeter",
+    "usage",
+    "smalltv",
+    "hardware",
+    "statusline"
+  ]
 }

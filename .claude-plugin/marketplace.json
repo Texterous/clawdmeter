@@ -9,7 +9,7 @@
     {
       "name": "clawd",
       "source": "./plugin",
-      "description": "Send your Claude Code usage to a Clawdmeter desk display over your local network."
+      "description": "Show your live Claude Code sessions on a Clawdmeter desk display."
     }
   ]
 }

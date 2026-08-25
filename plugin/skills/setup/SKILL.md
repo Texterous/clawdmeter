@@ -4,9 +4,12 @@ description: Pair this machine with a Clawdmeter desk display so it shows your l
 
 # Set up a Clawdmeter display
 
-Pairing is one file. The plugin's hooks do the rest — they are already loaded in
-this session, so the board starts filling in on the next tool call with no
-restart and nothing added to the user's settings.
+Pairing is one file. The plugin's hooks do the rest, and nothing is added to the
+user's Claude Code settings.
+
+One caveat to get right: **plugin hooks only start firing after a restart.** If
+the plugin was installed or updated in this session, the installer already said
+so. Step 4 checks whether they are live rather than assuming, so follow it.
 
 `$ARGUMENTS` may hold the 4-character code from the device screen (e.g. `a1b2`),
 an IP address, or `clawd-a1b2.local`. If it is empty, ask:
@@ -71,26 +74,34 @@ feeds: `mode` should be `sessions` in `/api/config`. Units ship that way; if thi
 one is on `usage`, offer to switch it, because the usage meters need rate-limit
 figures the hooks are never given (see *What this cannot show*).
 
-## 4. Prove it works
+## 4. Check whether the hooks are live, and prove it
 
-Do something that fires a tool call, then read the device back:
+Delete `~/.clawd/sessions/` if it exists, then run any tool call. If the hooks
+are live, that directory reappears with a line in it.
+
+**Empty means the hooks have not loaded yet** — the plugin was installed in this
+session. Say so and stop there:
+
+> Paired. **Restart Claude Code once** and the board starts filling in. After
+> that it stays live — no further restarts.
+
+**Populated means it is working.** Read the device back:
 
 ```
 curl -s -m 3 http://<address>/api/status
 ```
 
-The `meter` object reports the board directly, so verify rather than assume:
+The `meter` object reports the board, so verify rather than assume:
 
 - `boardValid: true` — the device has a board
 - `rows` / `live` — sessions drawn and sessions known
 - `usageValid: false` — expected; the hooks carry no rate-limit figures
 
-Then say plainly what they will see:
-
 > Paired. Your device is showing **N** session(s). It updates as you work.
 
-If `boardValid` is false, the device has data but no board — the payload is
-getting through and the board is not. Check `~/.clawd/sessions/` has files in it.
+If `~/.clawd/sessions/` has files but `boardValid` is false, the payload is
+reaching the device and the board is not — that is a bug worth reporting, not a
+setup problem.
 
 ## Nothing found
 
