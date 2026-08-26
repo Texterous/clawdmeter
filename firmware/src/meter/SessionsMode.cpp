@@ -248,13 +248,28 @@ static void drawBoard(const UsageData& u) {
 // and re-finding a unit whose IP moved is the usual reason a paired device goes
 // quiet and stays quiet.
 //
+// The hierarchy here is the whole point, and the first version got it backwards.
+// It led with "In Claude Code, run /clawd:setup a1b2", which is the right advice
+// for a pairing that is broken and the WRONG advice for the case people actually
+// meet: an overnight gap. Hooks only fire while Claude Code is open, so a laptop
+// that was shut at six in the evening puts this screen up by half past — and the
+// first thing its owner read the next morning was an instruction to redo their
+// setup. Reported by the user on the first morning it happened, and they were
+// right: they did nothing, sent one message, and it came back by itself.
+//
+// So the reassurance leads and the command is demoted to a fallback. Both are on
+// the screen because the device genuinely cannot tell the two apart — it knows
+// only that nothing has arrived — but it can tell you which is likelier, and it
+// is not the broken one.
+//
 // Every row and its width against the 232 px content budget:
-//     10  SESSIONS               2  (left)   8 x 6 x 2 = 96
-//     56  waiting...             3           10 x 6 x 3 = 180
-//    104  In Claude Code, run    1           19 x 6 x 1 = 114
-//    120  /clawd:setup a1b2      2           17 x 6 x 2 = 204
-//    176  or open                1            7 x 6 x 1 = 42
-//    192  <ip>                   2           15 x 6 x 2 = 180
+//     10  SESSIONS                   2  (left)   8 x 6 x 2 = 96
+//     64  waiting...                 3           10 x 6 x 3 = 180
+//    110  Normal while Claude Code   1           24 x 6 x 1 = 144
+//    124  is closed. Resumes itself  1           25 x 6 x 1 = 150
+//    172  Still nothing?             1           14 x 6 x 1 = 84
+//    188  /clawd:setup a1b2          2           17 x 6 x 2 = 204
+//    216  <ip>                       1           15 x 6 x 1 = 90
 static void drawStale(const Settings& s, bool error) {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
@@ -262,31 +277,40 @@ static void drawStale(const Settings& s, bool error) {
   drawLeft(gfx, 8, 10, "SESSIONS", 2, C_WHITE);
   gfx->fillRect(8, 34, 224, 2, C_BARBG);
 
-  // "sender error", not "daemon error": what people install is the clawd plugin.
-  gfxDrawCentered(error ? "sender error" : "waiting...", 56, 3, C_DIM);
+  if (error) {
+    // Only a PULL-mode unit can reach this: usageService sets the flag on a failed
+    // fetch, and a pushed unit never fetches. "sender error", not "daemon error" —
+    // what people install is the clawd plugin. 12 x 6 x 3 = 216 px.
+    gfxDrawCentered("sender error", 64, 3, C_DIM);
+    gfxDrawCentered("This device could not reach", 110, 1, C_DIM);   // 27 x 6 = 162
+    gfxDrawCentered("the pull URL it is set to", 124, 1, C_DIM);     // 25 x 6 = 150
+  } else {
+    gfxDrawCentered("waiting...", 64, 3, C_DIM);
+    gfxDrawCentered("Normal while Claude Code", 110, 1, C_DIM);
+    gfxDrawCentered("is closed. Resumes itself", 124, 1, C_DIM);
+  }
 
+  gfx->fillRect(8, 156, 224, 2, C_BARBG);
+
+  // Below the rule: what to do if the reassurance above turns out to be wrong.
+  gfxDrawCentered("Still nothing?", 172, 1, C_DIM);
   char code[8];
   fmtDeviceCode(s.hostname.c_str(), code, sizeof(code));
   char cmd[40];
   snprintf(cmd, sizeof(cmd), "/clawd:setup %s", code);
-  gfxDrawCentered("In Claude Code, run", 104, 1, C_DIM);
-  // gfxFitSize, not gfxFitSizeMin: this is the line the screen exists for now, so
-  // 6x8 beats dropping it. A default name lands at size 2.
-  gfxDrawCentered(cmd, 120, gfxFitSize(cmd, 232, 2), C_WHITE);
-
-  gfx->fillRect(8, 156, 224, 2, C_BARBG);
+  // gfxFitSize, not gfxFitSizeMin: 6x8 beats dropping the line. A default name
+  // lands at size 2.
+  gfxDrawCentered(cmd, 188, gfxFitSize(cmd, 232, 2), C_WHITE);
 
   // The web UI, for anyone who would rather look than type — and the IP rather
   // than <host>.local, unlike the commissioning screen. Two reasons: whoever is
-  // reading a stale screen is troubleshooting, and mDNS is exactly the thing that
-  // is blocked on the networks where troubleshooting happens; and netIP() is read
+  // reading this far is troubleshooting, and mDNS is exactly the thing that is
+  // blocked on the networks where troubleshooting happens; and netIP() is read
   // live, so this line is correct even when the sender's cached address is the
   // thing that went wrong.
   String ip = netIP();
-  if (ip.length() && ip != "0.0.0.0") {
-    gfxDrawCentered("or open", 176, 1, C_DIM);
-    gfxDrawCentered(ip.c_str(), 192, gfxFitSize(ip.c_str(), 232, 2), C_UGREEN);
-  }
+  if (ip.length() && ip != "0.0.0.0")
+    gfxDrawCentered(ip.c_str(), 216, 1, C_DIM);
 }
 
 // ---- DisplayMode ----------------------------------------------------------

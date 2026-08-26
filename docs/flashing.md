@@ -41,13 +41,13 @@ two independent ceilings and the lower one binds:
 | CI gate | **520,000** | `.github/workflows/build.yml` stats `firmware.bin` and **fails the build** above this. Self-imposed, and it is the one you hit first. |
 | Stock OTA ceiling | **524,288** | 512 KiB. GeekMagic's stock updater refuses an upload much over this, so an image above it cannot be installed in one step on a factory-fresh unit at all. |
 
-Measured sizes, firmware 0.4.0, all four `pio run` targets, built from a clean
+Measured sizes, firmware 0.4.1, all four `pio run` targets, built from a clean
 checkout (no `provision_local.h`, which is what CI does):
 
 | env | image | bytes | headroom to CI gate | headroom to stock ceiling |
 |---|---|--:|--:|--:|
-| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **481,440** | 38,560 | 42,848 |
-| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **481,440** | 38,560 | 42,848 |
+| `ultra_slim` | `clawdmeter-ultra-slim.bin` | **481,616** | 38,384 | 42,672 |
+| `ultra_giveaway` | `clawdmeter-ultra-giveaway.bin` | **481,616** | 38,384 | 42,672 |
 | `ultra` | `clawdmeter-ultra.bin` | 597,168 | — | over both |
 | `loader` | `rollback-loader.bin` | 315,920 | — | — |
 
