@@ -16,10 +16,10 @@
 #define WAIT_BAND_Y   206
 #define WAIT_BAND_H    20
 #define WAIT_TEXT_Y   208
-// x of the WIDEST state ("Waiting for data..." = 19 x 6 x 2 = 228 px), held fixed
-// rather than recentred per frame so the text does not shuffle sideways as the
-// dots come and go.
-#define WAIT_TEXT_X     6
+// x of the WIDEST state ("Listening for you..." at size 1 = 20 x 6 = 120 px,
+// centred in 240), held fixed rather than recentred per frame so the text does
+// not shuffle sideways as the dots come and go.
+#define WAIT_TEXT_X    60
 
 static bool     s_primed = false;    // the screen is ours and up to date
 static uint8_t  s_dots   = 0;        // 0..3
@@ -39,15 +39,22 @@ void commissionInvalidate() { s_primed = false; }
 static void drawWaiting() {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
+  // "Listening", not "Waiting". Same animation, same meaning to anyone reading
+  // this code, and a different meaning to the person holding the device: waiting
+  // is what you do when something has gone wrong and nobody has told you, and it
+  // was the word on screen for every one of this project's real failures. What
+  // the device is actually doing here is being up, on the network and ready —
+  // worth saying, because the remaining step is the reader's.
+  //
   // The dots are trimmed off the end of the full string rather than appended, so
   // there is only ever one literal and one length to keep straight.
-  static const char kWait[] = "Waiting for data...";
+  static const char kWait[] = "Listening for you...";
   char line[sizeof(kWait)];
   strlcpy(line, kWait, sizeof(line));
   line[sizeof(kWait) - 4 + s_dots] = '\0';
 
   gfx->fillRect(0, WAIT_BAND_Y, TFT_WIDTH, WAIT_BAND_H, C_BLACK);
-  gfx->setTextSize(2);
+  gfx->setTextSize(1);
   gfx->setTextColor(C_DIM);
   gfx->setCursor(WAIT_TEXT_X, WAIT_TEXT_Y);
   gfx->print(line);
@@ -60,7 +67,7 @@ static void drawWaiting() {
 //   106  or set it up at           1   15 x 6 x 1 =  90
 //   120  <host>.local              2   16 x 6 x 2 = 192
 //   142  <ip>                      2   15 x 6 x 2 = 180  (longest possible IPv4)
-//   208  Waiting for data...       2   19 x 6 x 2 = 228
+//   208  Listening for you...      1   20 x 6 x 1 = 120
 // `addr` is null when the station is not associated.
 static void drawFull(const Settings& s, const char* addr) {
   Arduino_GFX* gfx = gfxDev();

@@ -4,30 +4,61 @@ description: Stop sending sessions to a Clawdmeter display. Use when the user ru
 
 # Unpair a Clawdmeter display
 
-There is almost nothing to undo. The plugin's hooks live inside the plugin and
-touch no Claude Code settings, so unpairing is deleting one directory.
+Two things to undo, and the order matters: stop the agent first, because it is a
+running process and it would otherwise rewrite the config file you are about to
+delete.
 
-## 1. Delete the pairing
+## 1. Stop and unregister the agent
 
-Remove `~/.clawd/`. It holds only the device address and one flat line per
-session — nothing worth keeping once the pairing is gone.
+From this plugin's `bin/` (or from `~/.clawd/bin/`, where `-Install` copied it —
+either works, they are the same script):
 
-The hooks stay installed and keep firing, but `clawd-report` exits immediately
-when there is no `ip` in the config, so they cost nothing. To stop them running
-at all, uninstall the plugin:
+- Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<bin>/clawd-agent.ps1" -Uninstall`
+- macOS, Linux: `sh "<bin>/clawd-agent.sh" --uninstall`
+
+That kills the running agent and removes the login item — the HKCU `Run` value on
+Windows, the launchd plist on macOS, the systemd user unit on Linux. Nothing is
+left to start at the next logon.
+
+**Do not skip this and just delete `~/.clawd/`.** The login item would survive,
+start an agent at every logon, and that agent would exit on a missing config —
+harmless, but a mystery for whoever finds it later.
+
+## 2. Delete the pairing
+
+Remove `~/.clawd/`. It holds the device address, one flat line per session, the
+agent's own state clock and its log — nothing worth keeping once the pairing is
+gone.
+
+The plugin's hooks stay installed and keep firing, but `clawd-report` exits
+immediately when there is no `ip` in the config, so they cost nothing. To stop
+them running at all, uninstall the plugin:
 
 ```bash
 claude plugin uninstall clawd@clawdmeter
 ```
 
-## 2. Tell them what the device will do
+## 3. Tell them what the device will do
 
-It keeps its WiFi credentials and its last board on screen, then falls to
-"waiting..." once that reading goes stale — 30 minutes on a pushed unit. That
-screen prints the unit's code and the pairing command, so it is the device saying
-nothing is feeding it, not a fault.
+It keeps its WiFi credentials and the last board it received, and goes on showing
+those rows — dimmed, with `LAST SEEN 18:42` under them — because that is the
+honest thing for a device that has lost its sender. It will not blank, and it
+will not claim to be live.
 
-To pair a different machine, run `/clawd:setup` there.
+On a power cycle it restores that same board from flash and shows it as
+`LAST KNOWN`. Only a unit that has never been fed at all shows `no contact` and
+the pairing command.
+
+To pair a different machine, run `/clawd:setup` there. Nothing needs clearing on
+the device first: the first payload from the new machine replaces the board and
+the remembered sender in one go.
+
+## If they want the device truly blank
+
+`POST /api/factory` wipes the config, the stored board and the remembered sender,
+then reboots into setup-AP mode. That is the right call before handing the unit
+to someone else — the board on flash carries their session names, and the
+remembered sender carries an address on their network.
 
 ## If they had the usage meters too
 

@@ -18,10 +18,11 @@ class SessionsMode : public DisplayMode {
   void begin(const Settings& s) override;
   void service(const Settings& s) override;
   void invalidate(const Settings& s) override;
-  // Another mode owned the panel. Clearing showedStale_ as well as needRender_ is
-  // what gets the stale screen back up: its own guard would otherwise decide it
-  // was already there and leave the other mode's pixels alone.
-  void wake(const Settings& s) override { needRender_ = true; showedStale_ = false; }
+  // Another mode owned the panel, so nothing on screen is ours: force one paint.
+  // This used to have to clear showedStale_ too — the stale screen kept its own
+  // "already up" flag and would otherwise have left the other mode's pixels
+  // alone. Liveness is a fingerprint input now, so needRender_ is the whole job.
+  void wake(const Settings& s) override { needRender_ = true; }
 
  private:
   // A digest of what the board DRAWS, not of when a payload arrived — see
@@ -29,8 +30,6 @@ class SessionsMode : public DisplayMode {
   // pixels. It needs no "nothing yet" value: needRender_ starts true and forces
   // the first paint before the digest is ever trusted.
   uint32_t renderedFp_ = 0;
-  bool     showedStale_ = false;
-  bool     staleError_ = false;   // which of the two stale reasons is on screen
   bool     needRender_ = true;
 };
 

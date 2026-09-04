@@ -25,7 +25,15 @@ static const int FOOTER_TOP = 176;
 
 static int rowHeight(uint8_t rows) { return rows <= 4 ? 30 : 22; }
 
-static uint16_t stateColor(uint8_t state) {
+// The lamp colour, and whether the lamp is still speaking for the present.
+//
+// A board that is no longer live keeps its shape and loses its urgency: same
+// rows, same order, every dot grey. This is the one thing the old "waiting..."
+// screen got right by accident and at too high a price — it refused to leave a
+// red dot on the glass for a permission prompt that was answered an hour ago. The
+// rows are still worth seeing; the traffic light is not.
+static uint16_t stateColor(uint8_t state, bool live) {
+  if (!live) return C_DGRAY;
   switch (state) {
     case SESS_BLOCKED: return C_RED;
     case SESS_WORKING: return C_UGREEN;
@@ -92,6 +100,23 @@ static void drawSummary(Arduino_GFX* gfx, const UsageData& u, int y) {
   }
 }
 
+// Where a board that is not live came from, in one line of at most 16 characters.
+//
+// The time is the SENDER's wall clock, carried in the payload (UsageData::ts) and
+// not the device's — see UsageData.h for why that is the right way round. Without
+// a stamp the line degrades to the two words that are still true.
+//
+//   "LAST SEEN 09:12"   aged out during this boot: we had contact and lost it
+//   "LAST KNOWN 22:41"  read back from flash: this is what the device knew before
+//                       it was unplugged
+//   "NO CONTACT"        a board with no stamp, from a sender too old to send one
+static void fmtProvenance(const UsageData& u, char* out, size_t n) {
+  const int32_t day = u.stampLocalDaySec();
+  if (day < 0) { strlcpy(out, u.restored ? "LAST KNOWN" : "NO CONTACT", n); return; }
+  snprintf(out, n, "%s %02d:%02d", u.restored ? "LAST KNOWN" : "LAST SEEN",
+           (int)(day / 3600), (int)((day % 3600) / 60));
+}
+
 // One usage window: a label, its percentage right-aligned to the window's own
 // right edge, and a bar under both. Two of these sit side by side in the footer,
 // which is how both windows fit in the vertical space the single 5h bar used to
@@ -116,8 +141,20 @@ static void drawWindow(Arduino_GFX* gfx, int x, const char* label, float pctRaw)
 // Footer: the state tally, plus both usage windows when the sender has them — so
 // the board is still worth looking at when nothing needs attention, and the
 // numbers that used to need a screen of their own live here instead.
-static void drawFooter(Arduino_GFX* gfx, const UsageData& u) {
+static void drawFooter(Arduino_GFX* gfx, const UsageData& u, bool live) {
   gfx->fillRect(8, FOOTER_TOP, 224, 2, C_BARBG);
+
+  if (!live) {
+    // The tally and both windows describe a moment that has passed, so neither is
+    // drawn: a "1 WORKING" under grey dots would be the same lie the old screen
+    // was built to avoid, and a percentage bar cannot be labelled stale. The
+    // footer says when instead, and that nobody needs to do anything.
+    char prov[24];
+    fmtProvenance(u, prov, sizeof(prov));
+    drawLeft(gfx, 8, FOOTER_TOP + 8, prov, 1, C_DIM);
+    drawLeft(gfx, 8, FOOTER_TOP + 26, "Resumes by itself", 1, C_DGRAY);
+    return;
+  }
 
   drawSummary(gfx, u, FOOTER_TOP + 8);
 
@@ -154,13 +191,38 @@ static uint32_t fnvBytes(uint32_t f, const void* p, size_t n) {
   return f;
 }
 
-static uint32_t boardFingerprint(const UsageData& u) {
+static uint32_t boardFingerprint(const UsageData& u, bool live, bool haveBoard) {
   uint32_t f = 2166136261u;
+
+  // Liveness leads, because it now picks colours, the header's right-hand side
+  // and the whole footer — and because the transition to not-live is the one
+  // repaint that used to need its own bookkeeping (showedStale_) to happen at
+  // all. It is a fingerprint input like any other now.
+  const uint8_t sel[3] = { (uint8_t)live, (uint8_t)haveBoard, (uint8_t)u.error };
+  f = fnvBytes(f, sel, sizeof(sel));
+
+  // No board: the idle screen draws none of what follows, and mixing it in would
+  // repaint a full screen — a visible black flash — every time a row aged behind
+  // a screen that does not show rows. Its only moving part is the address, which
+  // changes when the unit's lease does, and that is worth catching.
+  if (!haveBoard) {
+    String ip = netIP();
+    return fnvBytes(f, ip.c_str(), ip.length());
+  }
+
   // Picks the screen (board / "no session data" / "nothing running"), the header
   // count and its colour, and every count in the footer summary.
   const uint8_t hdr[4] = { (uint8_t)u.boardValid, (uint8_t)u.usageValid,
                            u.sessionRows, u.sessionLive };
   f = fnvBytes(f, hdr, sizeof(hdr));
+
+  // The provenance line, to the minute it prints. Only drawn when not live, and
+  // then it is the only thing on the screen that moves.
+  const int32_t day = u.stampLocalDaySec();
+  const uint8_t prov[3] = { (uint8_t)u.restored,
+                            (uint8_t)(day < 0 ? 0xFF : (day / 60) & 0xFF),
+                            (uint8_t)(day < 0 ? 0xFF : (day / 60) >> 8) };
+  f = fnvBytes(f, prov, sizeof(prov));
 
   for (uint8_t i = 0; i < u.sessionRows; i++) {
     const SessionInfo& si = u.sessions[i];
@@ -184,12 +246,12 @@ static uint32_t boardFingerprint(const UsageData& u) {
   return fnvBytes(f, foot, sizeof(foot));
 }
 
-static void drawBoard(const UsageData& u) {
+static void drawBoard(const UsageData& u, bool live) {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
 
-  drawLeft(gfx, 8, 10, "SESSIONS", 2, C_WHITE);
+  drawLeft(gfx, 8, 10, "SESSIONS", 2, live ? C_WHITE : C_DIM);
 
   if (!u.boardValid) {
     // The payload parsed but carried no board. Say which end needs attention
@@ -205,14 +267,23 @@ static void drawBoard(const UsageData& u) {
     return;
   }
 
-  char head[12];
-  snprintf(head, sizeof(head), "%u LIVE", (unsigned)u.sessionLive);
-  drawRight(gfx, 232, 10, head, 2, u.sessionLive ? C_ACCENT : C_DIM);
+  // "3 LIVE" is a claim about right now, so it goes away when right now is no
+  // longer what is on the glass. The count is still in the rows for anyone who
+  // wants it; what the header would add is the word that makes it a lie.
+  if (live) {
+    char head[12];
+    snprintf(head, sizeof(head), "%u LIVE", (unsigned)u.sessionLive);
+    drawRight(gfx, 232, 10, head, 2, u.sessionLive ? C_ACCENT : C_DIM);
+  }
   gfx->fillRect(8, 34, 224, 2, C_BARBG);
 
   if (u.sessionRows == 0) {
-    gfxDrawCentered("nothing running", 96, 2, C_DIM);
-    drawFooter(gfx, u);
+    // Live and empty is "nothing running", which is a real, restful answer.
+    // Not live and empty is the overnight case: the last thing the device knew
+    // was that nothing was running, and the footer dates it.
+    gfxDrawCentered(live ? "nothing running" : "nothing was running",
+                    96, live ? 2 : 1, C_DIM);
+    drawFooter(gfx, u, live);
     return;
   }
 
@@ -221,56 +292,43 @@ static void drawBoard(const UsageData& u) {
     const SessionInfo& si = u.sessions[i];
     const int top = ROWS_TOP + i * rh;
 
-    gfx->fillCircle(20, top + 11, 6, stateColor(si.state));
-    drawLeft(gfx, 36, top + 3, si.name, 2, C_WHITE);
+    gfx->fillCircle(20, top + 11, 6, stateColor(si.state, live));
+    drawLeft(gfx, 36, top + 3, si.name, 2, live ? C_WHITE : C_DIM);
 
     char age[10];
     fmtDuration(si.mins, age, sizeof(age), "<1m");
-    drawRight(gfx, 232, top + 7, age, 1, C_DIM);
+    drawRight(gfx, 232, top + 7, age, 1, live ? C_DIM : C_DGRAY);
   }
 
-  drawFooter(gfx, u);
+  drawFooter(gfx, u, live);
 }
 
-// Nothing has arrived recently: say so rather than leaving a stale board up. A
-// board that keeps showing "working" for a laptop that went to sleep is worse
-// than one that admits it lost contact.
+// The screen for a device with NO board to show at all: never fed on this boot
+// and nothing on flash either. It is the old stale screen, minus the job it
+// should never have had.
 //
-// But "waiting..." alone was a dead end, and it is the screen people actually
-// hit — the one moment a recipient needs to know what to do and there is no card
-// in the box to tell them. The device knows all three of the things that would
-// help, so it prints them: the command, the code that picks this unit out of
-// thirty, and the address of its own web UI.
+// What changed underneath it: a board now survives a reboot (meter/BoardStore)
+// and the device asks its sender for a fresh one instead of waiting to be found.
+// So the ordinary quiet cases — a closed laptop, a power cycle, an overnight gap —
+// all draw the last board dimmed and dated, and this screen is left with only the
+// cases where something is genuinely wrong or genuinely new: a unit whose sender
+// has never reached it, or one upgraded into this firmware before it had a file
+// to restore. That is why the command is back on top: down here, it IS the advice.
 //
-// Only a commissioned unit reaches here — main.cpp holds one that has never been
-// fed on the commissioning screen instead — so this never has to double as a
-// first-run screen, and re-running setup is the honest advice: it is idempotent,
-// and re-finding a unit whose IP moved is the usual reason a paired device goes
-// quiet and stays quiet.
-//
-// The hierarchy here is the whole point, and the first version got it backwards.
-// It led with "In Claude Code, run /clawd:setup a1b2", which is the right advice
-// for a pairing that is broken and the WRONG advice for the case people actually
-// meet: an overnight gap. Hooks only fire while Claude Code is open, so a laptop
-// that was shut at six in the evening puts this screen up by half past — and the
-// first thing its owner read the next morning was an instruction to redo their
-// setup. Reported by the user on the first morning it happened, and they were
-// right: they did nothing, sent one message, and it came back by itself.
-//
-// So the reassurance leads and the command is demoted to a fallback. Both are on
-// the screen because the device genuinely cannot tell the two apart — it knows
-// only that nothing has arrived — but it can tell you which is likelier, and it
-// is not the broken one.
+// "waiting..." is gone as a word. It described the device's own state machine
+// rather than anything the reader could act on, and it was the first thing
+// recipients saw on every power cycle.
 //
 // Every row and its width against the 232 px content budget:
 //     10  SESSIONS                   2  (left)   8 x 6 x 2 = 96
-//     64  waiting...                 3           10 x 6 x 3 = 180
-//    110  Normal while Claude Code   1           24 x 6 x 1 = 144
-//    124  is closed. Resumes itself  1           25 x 6 x 1 = 150
-//    172  Still nothing?             1           14 x 6 x 1 = 84
-//    188  /clawd:setup a1b2          2           17 x 6 x 2 = 204
-//    216  <ip>                       1           15 x 6 x 1 = 90
-static void drawStale(const Settings& s, bool error) {
+//     64  no contact                 3           10 x 6 x 3 = 180
+//    110  Nothing has reached this   1           24 x 6 x 1 = 144
+//    124  display yet. To pair it:   1           24 x 6 x 1 = 144
+//    160  /clawd:setup a1b2          2           17 x 6 x 2 = 204
+//    196  Already paired? This is    1           23 x 6 x 1 = 138
+//    210  normal while Claude Code   1           24 x 6 x 1 = 144
+//    224  is closed.  <ip>           1
+static void drawIdle(const Settings& s, bool error) {
   Arduino_GFX* gfx = gfxDev();
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
@@ -284,23 +342,31 @@ static void drawStale(const Settings& s, bool error) {
     gfxDrawCentered("sender error", 64, 3, C_DIM);
     gfxDrawCentered("This device could not reach", 110, 1, C_DIM);   // 27 x 6 = 162
     gfxDrawCentered("the pull URL it is set to", 124, 1, C_DIM);     // 25 x 6 = 150
-  } else {
-    gfxDrawCentered("waiting...", 64, 3, C_DIM);
-    gfxDrawCentered("Normal while Claude Code", 110, 1, C_DIM);
-    gfxDrawCentered("is closed. Resumes itself", 124, 1, C_DIM);
+    String eip = netIP();
+    if (eip.length() && eip != "0.0.0.0") gfxDrawCentered(eip.c_str(), 216, 1, C_DIM);
+    return;
   }
 
-  gfx->fillRect(8, 156, 224, 2, C_BARBG);
+  gfxDrawCentered("no contact", 64, 3, C_DIM);
+  gfxDrawCentered("Nothing has reached this", 110, 1, C_DIM);
+  gfxDrawCentered("display yet. To pair it:", 124, 1, C_DIM);
 
-  // Below the rule: what to do if the reassurance above turns out to be wrong.
-  gfxDrawCentered("Still nothing?", 172, 1, C_DIM);
   char code[8];
   fmtDeviceCode(s.hostname.c_str(), code, sizeof(code));
   char cmd[40];
   snprintf(cmd, sizeof(cmd), "/clawd:setup %s", code);
   // gfxFitSize, not gfxFitSizeMin: 6x8 beats dropping the line. A default name
   // lands at size 2.
-  gfxDrawCentered(cmd, 188, gfxFitSize(cmd, 232, 2), C_WHITE);
+  gfxDrawCentered(cmd, 160, gfxFitSize(cmd, 232, 2), C_WHITE);
+
+  gfx->fillRect(8, 186, 224, 2, C_BARBG);
+
+  // Kept, in a quieter register: a recipient who reaches this screen having
+  // already paired should not be told to start again. It is rarer than it was —
+  // this screen no longer stands in for an overnight gap — but a unit whose
+  // /board.json has not been written yet can still land here for one evening.
+  gfxDrawCentered("Already paired? Normal", 200, 1, C_DGRAY);
+  gfxDrawCentered("while Claude Code is closed", 214, 1, C_DGRAY);
 
   // The web UI, for anyone who would rather look than type — and the IP rather
   // than <host>.local, unlike the commissioning screen. Two reasons: whoever is
@@ -310,19 +376,20 @@ static void drawStale(const Settings& s, bool error) {
   // thing that went wrong.
   String ip = netIP();
   if (ip.length() && ip != "0.0.0.0")
-    gfxDrawCentered(ip.c_str(), 216, 1, C_DIM);
+    gfxDrawCentered(ip.c_str(), 228, 1, C_DIM);
 }
 
 // ---- DisplayMode ----------------------------------------------------------
 void SessionsMode::begin(const Settings& s) {
-  usageInit(s);
-  showedStale_ = false;
+  // No usageInit() here any more, and that is the whole of what makes a restored
+  // board visible: begin() runs after boardStoreBegin() has put last night's
+  // rows into the snapshot, and usageInit() clears it. main.cpp calls the two in
+  // that order; clearing here would have thrown away the file it just read.
   needRender_ = true;
 }
 
 void SessionsMode::invalidate(const Settings& s) {
   needRender_ = true;
-  showedStale_ = false;
   usageInit(s);
   usageForceRefresh();
 }
@@ -333,18 +400,25 @@ void SessionsMode::service(const Settings& s) {
   if (s.usage.usageUrl.length() >= 8) usageService(s);
 
   const UsageData& u = usageGet();
+  const bool live = usageFresh(usageStaleMs(s));
 
-  if (usageFresh(usageStaleMs(s))) {
-    if (showedStale_) { showedStale_ = false; needRender_ = true; }
-    uint32_t fp = boardFingerprint(u);
-    if (fp != renderedFp_) needRender_ = true;
-    if (needRender_) { drawBoard(u); renderedFp_ = fp; needRender_ = false; }
-  } else if (!showedStale_ || u.error != staleError_) {
-    // Also repainted when the REASON changes: a pull-mode unit goes quiet first
-    // ("waiting...") and only learns "sender error" on the first failed poll after
-    // that, which is the half of the message worth reading.
-    showedStale_ = true;
-    staleError_  = u.error;
-    drawStale(s, u.error);
-  }
+  // Rows to draw, whatever their age. A restored board and a board that aged out
+  // ten minutes ago are the same thing to this screen: real sessions, dimmed and
+  // dated. Only a unit with nothing at all falls through to drawIdle, and a
+  // pull-mode error goes there too — it is a message about the sender, not a
+  // board, so leaving old rows up under it would bury it.
+  const bool haveBoard = u.valid && u.boardValid && !u.error;
+
+  const uint32_t fp = boardFingerprint(u, live, haveBoard);
+  if (!needRender_ && fp == renderedFp_) return;
+
+  // One render path, gated on one digest. The stale screen used to keep its own
+  // showedStale_ / staleError_ flags to avoid repainting itself every 5 ms; with
+  // liveness and the error flag mixed into the fingerprint there is nothing left
+  // for them to remember, and the transition into and out of not-live repaints
+  // for the same reason every other change does.
+  if (haveBoard) drawBoard(u, live);
+  else           drawIdle(s, u.error);
+  renderedFp_ = fp;
+  needRender_ = false;
 }

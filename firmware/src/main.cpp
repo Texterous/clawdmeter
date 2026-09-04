@@ -22,6 +22,7 @@
 #include "SessionsMode.h"
 #include "Commission.h"
 #include "UsageClient.h"
+#include "BoardStore.h"
 
 // ---- mode registry --------------------------------------------------------
 // One entry. There used to be a second, "usage", which drew the 5h/7d meters and
@@ -184,6 +185,12 @@ void setup() {
   webPortalBegin(g_settings);
 
   Serial.println("[boot] meter");
+  // Before the modes, and the order is the feature: boardStoreBegin puts the last
+  // payload back into the snapshot so the first paint is the board this unit had
+  // when it lost power, instead of an empty screen with nothing to say. A mode's
+  // begin() must not clear the snapshot for the same reason — SessionsMode::begin
+  // no longer does.
+  if (boardStoreBegin()) Serial.println("[boot] board restored");
   for (size_t i = 0; i < kModeCount; i++) kModes[i]->begin(g_settings);
   Serial.println("[boot] done");
 
@@ -292,6 +299,11 @@ void loop() {
     }
     g_commissionDue = true;   // fall through to the meter; the save lands next pass
   }
+
+  // Flush a changed board to flash, and — when nothing is arriving — ask the
+  // sender for one. Outside the HTTP response and outside the render path, like
+  // every other write this loop owns.
+  boardStoreService(g_settings);
 
   DisplayMode* m = activeMode(g_settings);
   if (m) m->service(g_settings);

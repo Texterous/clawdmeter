@@ -14,7 +14,7 @@
 // Firmware identity
 // ---------------------------------------------------------------------------
 #define FW_NAME     "clawdmeter"
-#define FW_VERSION  "0.4.1"
+#define FW_VERSION  "0.5.0"
 
 #define REPO_URL    "https://github.com/Texterous/clawdmeter"
 #define REPO_OWNER  "Texterous"
@@ -165,6 +165,41 @@
 // hand-paired or re-paired one looking broken. Thirty minutes reads as "you have
 // not touched Claude in a while", which is the only thing this can honestly mean.
 #define PUSH_STALE_MS       1800000UL
+
+// ...unless the sender says otherwise. A payload carrying `hb` declares the
+// sender's heartbeat in seconds, and the device then trusts three missed beats
+// instead of half an hour: the always-on agent beats every 15 s, so a laptop that
+// closed its lid shows as quiet inside a minute rather than looking live for the
+// next twenty-nine. Clamped at both ends — a sender that claims a one-second
+// heartbeat must not be able to make the panel flap.
+//
+// A sender WITHOUT `hb` is the hook-only reporter, which speaks on events and can
+// be silent for an hour of reading with nothing wrong. It keeps PUSH_STALE_MS.
+#define PUSH_STALE_MIN_MS     60000UL
+#define PUSH_STALE_BEATS      3
+
+// The agent's own listener, where the device asks for a push (GET /refresh). Only
+// a default: every payload may carry `p`, and the remembered value wins.
+#define CLAWD_AGENT_PORT      8788
+
+// ---------------------------------------------------------------------------
+// Board persistence (meter/BoardStore). The last payload lives in /board.json so
+// a power cycle shows the last known board instead of an empty screen.
+// ---------------------------------------------------------------------------
+// Longest payload worth keeping. Six rows of twelve characters plus the usage
+// numbers is under 400 B; the cap is what stops a probe or a runaway sender from
+// filling flash with something that was never a board.
+#define BOARD_STORE_MAX          700
+// Floor between flash writes. The file is read exactly once per boot, so a copy
+// a few minutes behind is still the right thing to restore — and this is the one
+// component of the device that wears out. The first change after a boot ignores
+// the floor, so a unit paired a minute ago survives being unplugged.
+#define BOARD_PERSIST_MIN_MS  300000UL
+// Poke budget. Bounds connect() against an address that has gone away, which
+// otherwise blocks for five seconds inside loop().
+#define BOARD_POKE_TIMEOUT_MS    800
+// How often to re-ask while nothing is arriving.
+#define BOARD_POKE_IDLE_MS     60000UL
 
 // ---------------------------------------------------------------------------
 // Provisioning. Baking event WiFi into a batch image means a freshly flashed

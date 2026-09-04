@@ -103,6 +103,26 @@ if ($evt -eq 'SessionEnd') {
   [System.IO.File]::WriteAllText($mine, "$name|$state|$since")
 }
 
+# ---- hand over to the agent, if one is running ------------------------------
+# The agent (clawd-agent.ps1) owns the transport when it is installed: it holds a
+# heartbeat the device measures its stale window against, it listens for the
+# device asking to be pushed to, and it keeps running with Claude Code closed.
+# Two senders pushing the same board would fight over the address in the config
+# and halve the value of the heartbeat, so this hook stops at writing its state
+# file — which is exactly the half the agent cannot do for itself. A hook is TOLD
+# that a permission prompt is up; nothing outside this process can see it.
+$agentPid = 0
+$pidFile  = Join-Path $Dir 'agent.pid'
+if (Test-Path $pidFile) {
+  try { $agentPid = [int](Get-Content $pidFile -First 1) } catch {}
+}
+if ($agentPid -gt 0) {
+  $ap = Get-Process -Id $agentPid -ErrorAction SilentlyContinue
+  # Name-checked: pids are recycled, and "some process has this pid" is not
+  # "the agent is running".
+  if ($ap -and $ap.ProcessName -match 'powershell|pwsh') { exit 0 }
+}
+
 # ---- rebuild the board from every session's line ---------------------------
 $rank = @{ 'b' = 0; 'a' = 1; 'w' = 2 }
 $rows = @()

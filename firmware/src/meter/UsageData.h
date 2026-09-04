@@ -43,6 +43,29 @@ struct UsageData {
   bool     error;            // most recent fetch failed
   uint32_t lastOkMs;         // millis() of last good update
 
+  // Restored from flash at boot rather than received on this boot. The rows are
+  // real and worth drawing — they are what the device knew when it lost power —
+  // but they are history, so usageFresh() refuses them and the screen labels
+  // them. Cleared by the first payload that actually arrives.
+  bool     restored;
+
+  // When the sender says it built this payload: UTC epoch seconds, plus the
+  // sender's own offset from it in minutes. Both optional.
+  //
+  // This is deliberately the sender's clock and not the device's. The panel needs
+  // a wall-clock time for one line of text ("LAST SEEN 09:12"), and getting one
+  // out of SNTP means a working NTP path, a POSIX TZ rule the recipient never set,
+  // and a DST database — on a device that is already talking to a computer which
+  // knows the answer. So the answer comes with the data.
+  uint32_t stampEpoch;
+  int16_t  stampTzOffMin;
+
+  // The sender's heartbeat, in seconds, and the port its listener is on. Both
+  // optional: zero means "not declared" and the device falls back to the
+  // conservative defaults in config.h.
+  uint16_t heartbeatSec;
+  uint16_t senderPort;
+
   void clear() {
     sessionPct = weeklyPct = 0;
     sessionResetMin = weeklyResetMin = 0;
@@ -53,5 +76,22 @@ struct UsageData {
     valid = false;
     error = false;
     lastOkMs = 0;
+    restored = false;
+    stampEpoch = 0;
+    stampTzOffMin = 0;
+    heartbeatSec = 0;
+    senderPort = 0;
+  }
+
+  // Local wall-clock seconds-since-midnight the sender stamped this payload with,
+  // or -1 when it carried no stamp. Modulo arithmetic on the sender's own local
+  // epoch: no time zone rule, no NTP, and correct across DST because the offset
+  // came from the machine that observes it.
+  int32_t stampLocalDaySec() const {
+    if (!stampEpoch) return -1;
+    int32_t local = (int32_t)(stampEpoch % 86400UL) + (int32_t)stampTzOffMin * 60;
+    while (local < 0)      local += 86400;
+    while (local >= 86400) local -= 86400;
+    return local;
   }
 };

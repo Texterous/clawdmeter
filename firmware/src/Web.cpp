@@ -17,6 +17,7 @@
 #include "Gfx.h"
 #include "OtaUpdate.h"
 #include "UsageClient.h"
+#include "BoardStore.h"
 #include "meter/Fmt.h"
 #include "Clock.h"
 
@@ -140,13 +141,28 @@ static void handleStatus() {
   m["boardValid"] = u.boardValid;
   m["rows"]       = u.sessionRows;
   m["live"]       = u.sessionLive;
+  // Where the board on screen came from, and what the device currently believes
+  // about its sender. `restored` is the one field that tells a support conversation
+  // whether the rows on the glass are this boot's or last night's, and `fresh`
+  // answers "is it live right now" without the caller having to know which of the
+  // three stale windows applies to this unit.
+  m["restored"]   = u.restored;
+  m["fresh"]      = usageFresh(usageStaleMs(*S));
+  m["staleSec"]   = usageStaleMs(*S) / 1000;
+  if (u.heartbeatSec) m["hb"] = u.heartbeatSec;
+  { String snd = boardStoreSender(); if (snd.length()) m["sender"] = snd; }
   if (u.valid) {
     m["sessionPct"]      = u.sessionPct;
     m["sessionResetMin"] = u.sessionResetMin;
     m["weeklyPct"]       = u.weeklyPct;
     m["weeklyResetMin"]  = u.weeklyResetMin;
     m["status"]          = u.status;
-    m["ageSec"]          = (millis() - u.lastOkMs) / 1000;
+    // Omitted for a restored board, deliberately. lastOkMs is then the millis()
+    // of the restore, so this would report "3" for rows that are a night old —
+    // which is precisely the wrong answer to the question anyone asking for
+    // ageSec is asking. `restored: true` says the age is unknown; a confidently
+    // wrong number would not.
+    if (!u.restored) m["ageSec"] = (millis() - u.lastOkMs) / 1000;
   }
   sendJson(doc);
 }
@@ -222,6 +238,10 @@ static void handleReboot() {
 static void handleFactory() {
   if (!requireAuth()) return;
   factoryReset(*S);
+  // The board and the remembered sender are part of what a factory reset means:
+  // leaving them would hand the next owner someone else's session names and an
+  // address on a network they are not on.
+  boardStoreForget();
   saveSettings(*S);
   server.send(200, "application/json", "{\"ok\":true}");
   scheduleReboot(400);
@@ -301,7 +321,17 @@ static void handleSelfUpdate() {
 // {s,sr,w,wr,st,ok} contract. Unauthenticated on purpose — see requireAuth.
 static void handleUsagePush() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
-  bool ok = usageApply(server.arg("plain"));
+  const String body = server.arg("plain");
+  bool ok = usageApply(body);
+  if (ok) {
+    // Every push hands the device its sender's address for nothing: the source IP
+    // of this very request. Paired with the listener port the payload declares,
+    // that is a return path — which is what lets a rebooted unit ask for a fresh
+    // board instead of waiting to be found again. Recorded here, written to flash
+    // by loop(); a sender that declares no port keeps whatever we already knew.
+    const UsageData& u = usageGet();
+    boardStoreNote(body, server.client().remoteIP().toString(), u.senderPort);
+  }
   server.send(ok ? 200 : 400, "application/json",
               ok ? "{\"ok\":true}" : "{\"ok\":false}");
 }

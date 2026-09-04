@@ -14,7 +14,12 @@ static bool      g_inited = false;
 // ---------------------------------------------------------------------------
 void usageInit(const Settings& s) {
   (void)s;
-  g_usage.clear();
+  // A board restored from flash outlives this. usageInit runs from two places
+  // that are not "start clean" — the pull path's lazy init on first service, and
+  // invalidate() after a settings POST — and clearing in either dropped the file
+  // BoardStore had just read. The one caller that genuinely wants an empty
+  // snapshot is a mode's begin(), which no longer calls this at all.
+  if (!g_usage.restored) g_usage.clear();
   g_nextPollMs = millis();
   g_inited = true;
 }
@@ -24,25 +29,51 @@ void usageForceRefresh() { g_nextPollMs = millis(); }
 const UsageData& usageGet() { return g_usage; }
 
 bool usageFresh(uint32_t withinMs) {
-  return g_usage.valid && (millis() - g_usage.lastOkMs) <= withinMs;
+  // `restored` is the load-bearing half. A board read back from flash is valid
+  // and lastOkMs is the millis() of the restore, which at boot is a handful of
+  // seconds — so without this test the device would call a board from last night
+  // fresh for the whole of its first stale window and draw it as live.
+  return g_usage.valid && !g_usage.restored && (millis() - g_usage.lastOkMs) <= withinMs;
+}
+
+uint32_t usageStaleMs(const Settings& s) {
+  if (s.usage.usageUrl.length() >= 8)
+    return (uint32_t)s.usage.pollSec * 1000UL * 2UL + USAGE_STALE_GRACE_MS;
+  if (g_usage.heartbeatSec) {
+    uint32_t w = (uint32_t)g_usage.heartbeatSec * 1000UL * PUSH_STALE_BEATS
+               + USAGE_STALE_GRACE_MS;
+    return constrain(w, (uint32_t)PUSH_STALE_MIN_MS, (uint32_t)PUSH_STALE_MS);
+  }
+  return PUSH_STALE_MS;
 }
 
 // ---- parse: usage contract -------------------------------------------------
 // { "s":29, "sr":142, "w":4, "wr":9876, "st":"allowed", "ok":true,
-//   "sess":[{"n":"stoplicht-72","s":"w","t":14}], "ns":4 }
+//   "sess":[{"n":"stoplicht-72","s":"w","t":14}], "ns":4,
+//   "ts":1788538615, "tzo":120, "hb":15, "p":8788 }
 //   s  = 5h utilization %        sr = minutes until 5h reset
 //   w  = 7d utilization %        wr = minutes until 7d reset
 //   st = rate-limit status       ok = false => explicit "no data"
-//   sess = session board rows, already sorted and clipped by the daemon:
+//   sess = session board rows, already sorted and clipped by the sender:
 //          n = name, s = "w"orking / "b"locked / "a"waiting, t = minutes
 //   ns = live sessions on the host (>= sess length when the board overflows)
+//   ts = sender's UTC epoch seconds   tzo = its local offset, minutes
+//   hb = sender's heartbeat, seconds  p   = sender's listener port
 //
-// sess/ns are optional: a payload without them parses exactly as before, which
-// is what keeps an older daemon working against this firmware.
+// EVERY key is optional except one of {s, sess}, and that is load-bearing rather
+// than lax. Three generations of sender have to work against one firmware: the
+// upstream Python daemon (s/sr/w/wr only), the hook reporter (sess/ns only), and
+// the agent (all of it). A payload missing a key parses as "not declared" and the
+// device falls back to a conservative default, so an older sender is never worse
+// off than it was — see usageStaleMs for the one that matters.
 static void usageFilter(JsonDocument& f) {
   f["s"] = true; f["sr"] = true; f["w"] = true;
   f["wr"] = true; f["st"] = true; f["ok"] = true;
   f["ns"] = true;
+  // Sender metadata. A filter drops every key it does not name, so a key added to
+  // the contract and not added here parses as absent — silently, and only on the
+  // device. ts/tzo = the sender's clock, hb = its heartbeat, p = its listener.
+  f["ts"] = true; f["tzo"] = true; f["hb"] = true; f["p"] = true;
   JsonObject row = f["sess"].add<JsonObject>();
   row["n"] = true; row["s"] = true; row["t"] = true;
 }
@@ -97,8 +128,18 @@ static bool applyUsageDoc(UsageData& d, JsonDocument& doc) {
   }
   applyBoard(d, doc);
 
+  // All four optional, and the last payload wins. A hook-only reporter carries
+  // none of them, which drops the stale window back to the conservative
+  // PUSH_STALE_MS — the forgiving direction, and the right one for a sender that
+  // only speaks when something happens.
+  d.stampEpoch    = doc["ts"] | 0UL;
+  d.stampTzOffMin = (int16_t)constrain((long)(doc["tzo"] | 0L), -1440L, 1440L);
+  d.heartbeatSec  = (uint16_t)constrain((long)(doc["hb"] | 0L), 0L, 3600L);
+  d.senderPort    = (uint16_t)constrain((long)(doc["p"] | 0L), 0L, 65535L);
+
   d.valid = true;
   d.error = false;
+  d.restored = false;      // whatever this is, it arrived
   d.lastOkMs = millis();
   // The one point both paths pass through — pushed via usageApply (Web.cpp) and
   // pulled via parseUsage — so hooking it here is what makes a pull-mode unit
@@ -120,6 +161,16 @@ bool usageApply(const String& body) {
   JsonDocument doc;
   if (deserializeJson(doc, body, DeserializationOption::Filter(filter))) return false;
   return applyUsageDoc(g_usage, doc);
+}
+
+// The same parse for the copy that survived the reboot. applyUsageDoc clears
+// `restored` because everything it normally parses did just arrive, so the flag
+// goes on afterwards — and it is what stops usageFresh() from calling last
+// night's board live.
+bool usageApplyRestored(const String& body) {
+  if (!usageApply(body)) return false;
+  g_usage.restored = true;
+  return true;
 }
 
 // ---- one HTTP GET + parse (only used when a pull URL is configured) --------

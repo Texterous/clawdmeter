@@ -1,15 +1,18 @@
 ---
-description: Pair this machine with a Clawdmeter desk display so it shows your live Claude Code sessions. Use when the user runs /clawd:setup, mentions pairing or setting up a Clawdmeter or SmallTV display, or says their Clawdmeter panel is blank or stuck on "ALMOST DONE" or "waiting...".
+description: Pair this machine with a Clawdmeter desk display so it shows your live Claude Code sessions. Use when the user runs /clawd:setup, mentions pairing or setting up a Clawdmeter or SmallTV display, or says their Clawdmeter panel is blank, stuck on "ALMOST DONE", or showing "no contact".
 ---
 
 # Set up a Clawdmeter display
 
-Pairing is one file. The plugin's hooks do the rest, and nothing is added to the
-user's Claude Code settings.
+Two steps: write one config file, install one background agent. **No Claude Code
+restart, and nothing added to the user's `settings.json`.**
 
-One caveat to get right: **plugin hooks only start firing after a restart.** If
-the plugin was installed or updated in this session, the installer already said
-so. Step 4 checks whether they are live rather than assuming, so follow it.
+That is the point of the agent. It reads the live sessions out of
+`~/.claude/sessions/*.json` and derives each one's state from its transcript's
+mtime, so pairing does not depend on the plugin's hooks having loaded — which
+they only do after a restart. The hooks still help when they are live (a hook is
+the only thing that can see a permission prompt), and the agent prefers their
+word when it is fresh. They are an upgrade, not a requirement.
 
 `$ARGUMENTS` may hold the 4-character code from the device screen (e.g. `a1b2`),
 an IP address, or `clawd-a1b2.local`. If it is empty, ask:
@@ -28,8 +31,7 @@ Given an IP or `.local` name, verify it directly:
 curl -s -m 3 --noproxy '*' http://<address>/api/status
 ```
 
-Otherwise sweep the local /24 (about 2.5 seconds) with the finder in this
-plugin's `bin/`:
+Otherwise sweep with the finder in this plugin's `bin/`:
 
 - Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<bin>/clawd-find.ps1"`
 - macOS, Linux: `sh "<bin>/clawd-find.sh"`
@@ -37,12 +39,19 @@ plugin's `bin/`:
 Each line is `<ip> <host>`. Match the host ending in the user's code — or read
 `code` straight out of `/api/status`, which is the same string the device prints.
 With several units and no match, list them and ask: a hackathon room can hold
-thirty, and the code is what tells them apart. With none, work through
-*Nothing found*.
+thirty, and the code is what tells them apart.
+
+**Nothing found? Add `-Wide` (or `--wide`) and try again before concluding
+anything.** The plain sweep covers this machine's own /24; `-Wide` covers the
+enclosing /20 in about 30 seconds. This is not a rare case — measured on the
+network this was built on, the laptop was on `10.94.13.251` and the device on
+`10.94.14.114`, three /24s apart on one SSID, where the narrow sweep can never
+succeed. Both sweeps already run two passes internally, so a single empty result
+is a real answer and does not need re-running by hand.
 
 Confirm before writing:
 
-> Found **clawd-a1b2** at 192.168.1.47, firmware 0.3.0. Pair with this one?
+> Found **clawd-a1b2** at 192.168.1.47, firmware 0.5.0. Pair with this one?
 
 ## 2. Write the config
 
@@ -54,51 +63,49 @@ host=clawd-a1b2
 code=a1b2
 ```
 
-That is the whole of it. Nothing goes into `~/.claude/settings.json`, and no
-script is copied anywhere — the hooks ship inside the plugin and reference it
-directly, so an update or an uninstall needs no follow-up.
-
 **Write `host`, not just `ip`.** The address is a DHCP lease on a device that
-roams; with `host` present the hooks relocate the unit by themselves when it
-moves and rewrite `ip`. With only `ip`, the pairing dies the next time the router
+roams; with `host` present the agent relocates the unit by itself when it moves
+and rewrites `ip`. With only `ip`, the pairing dies the next time the router
 hands out a different one.
 
-Nothing else needs configuring. Firmware 0.3.1 and later allow 30 minutes of
-quiet on a pushed unit, so there is no stale window to widen — earlier versions
-needed a `pollSec` POST here and dropped to "waiting..." after 80 seconds without
-it. If `/api/status` reports a version below 0.3.1, offer the OTA rather than
-working around it.
+## 3. Install the agent
 
-## 3. Check whether the hooks are live, and prove it
+From this plugin's `bin/`:
 
-Delete `~/.clawd/sessions/` if it exists, then run any tool call. If the hooks
-are live, that directory reappears with a line in it.
->>>
+- Windows: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<bin>/clawd-agent.ps1" -Install`
+- macOS, Linux: `sh "<bin>/clawd-agent.sh" --install`
 
+It copies itself to `~/.clawd/bin/`, registers a login item (HKCU Run on
+Windows, launchd on macOS, a systemd user unit on Linux), and starts immediately.
+No elevation is needed on any of the three.
 
-**Empty means the hooks have not loaded yet** — the plugin was installed in this
-session. Say so and stop there:
+**Why it copies itself out of the plugin:** a plugin's install path is
+version-pinned (`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`), so
+a login item pointing into it would break silently on the next plugin update and
+again if the plugin were disabled.
 
-> Paired. **Restart Claude Code once** and the board starts filling in. After
-> that it stays live — no further restarts.
-
-**Populated means it is working.** Read the device back:
+## 4. Verify on the device, not on faith
 
 ```
 curl -s -m 3 http://<address>/api/status
 ```
 
-The `meter` object reports the board, so verify rather than assume:
+The `meter` object answers every question worth asking:
 
 - `boardValid: true` — the device has a board
+- `fresh: true` — it counts as live right now
 - `rows` / `live` — sessions drawn and sessions known
-- `usageValid: false` — expected; the hooks carry no rate-limit figures
+- `restored: false` — these rows arrived, they are not last night's from flash
+- `sender` — the address and port the device will call to ask for a push
+- `hb: 15` — the heartbeat it is measuring silence against
+- `usageValid: false` — expected; see *What this cannot show*
 
-> Paired. Your device is showing **N** session(s). It updates as you work.
+> Paired. Your device is showing **N** session(s), and it keeps showing them with
+> Claude Code closed. Restarting either end is fine — it comes back by itself.
 
-If `~/.clawd/sessions/` has files but `boardValid` is false, the payload is
-reaching the device and the board is not — that is a bug worth reporting, not a
-setup problem.
+If `boardValid` is false a few seconds after the install, check
+`~/.clawd/agent.log`: it records every push, every address change and every
+reason a send failed.
 
 ## Nothing found
 
@@ -107,14 +114,22 @@ than a named error.
 
 1. **Is the device on WiFi?** If the screen shows a setup AP name like
    `Clawd-a1b2` rather than an IP, it has not joined a network yet.
-2. **Same network?** A laptop on ethernet and the device on WiFi will not meet.
-3. **A network bigger than a /24.** The sweep covers 254 addresses. On a /16 or
-   /20 the unit can sit outside it — the screen prints its IP, so ask for that.
-4. **AP or client isolation.** If the device is definitely on the same SSID and
+2. **Did you try `-Wide`?** See step 1. On a /20 or /16 the narrow sweep cannot
+   reach it, and this is the single most likely reason for an empty result.
+3. **Same network?** A laptop on ethernet and the device on WiFi will not meet.
+4. **A network bigger than a /20.** The wide sweep covers 4064 addresses. On a
+   /16 the unit can still sit outside it — the screen prints its IP, so ask.
+5. **AP or client isolation.** If the device is definitely on the same SSID and
    still unreachable, the access point is refusing to forward client-to-client
    traffic. Nothing here can fix that: recommend a phone hotspot for both. This
    is the most likely failure at a venue and it fails silently.
-5. **Auth is on.** A 401 from `/api/status` means portal auth is enabled.
+6. **Auth is on.** A 401 from `/api/status` means portal auth is enabled.
+
+## Re-running this
+
+It is idempotent. `-Install` stops any running agent, refreshes the copy in
+`~/.clawd/bin/`, and starts the new one — so it is also the way to update the
+agent after a plugin update.
 
 ## What this cannot show
 
@@ -123,6 +138,5 @@ Claude Code only puts in a `statusLine` payload — and a `statusLine` never run
 the desktop app, only in a terminal. So they stay empty, and the device leaves
 those two rows blank rather than drawing zeroes.
 
-Do not offer to "switch screens" to fix it. From firmware 0.4.0 there is only one
-screen; the windows are a footer on it. A unit paired this way shows sessions,
-everywhere, always.
+Do not offer to "switch screens" to fix it. There is one screen; the windows are
+a footer on it.

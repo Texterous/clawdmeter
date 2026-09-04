@@ -1,22 +1,39 @@
 # Onboarding spec: from plugged-in to working
 
-**Status: proposed, not implemented.** Written 2026-08-23 against firmware 0.2.0.
+**Status: mostly implemented as of 0.5.0 (2026-09-04).** Written 2026-08-23
+against firmware 0.2.0; the walk below is how it stands now.
 
 Every unit ships with no saved network, so every recipient walks the same path:
-setup hotspot, then their own WiFi, then the agent. Stages 1, 2 and 4 of that walk
-already work. Stages 3, 5 and 6 break it, and the 5-to-6 break is the one that
-loses people for good: it is the moment they lose both their connection to the
-device and the address they would need to get back.
+setup hotspot, then their own WiFi, then the sender.
 
 ```
 1 plug in            SETUP MODE screen, persistent            works
 2 join hotspot       captive portal pops                      works
-3 portal opens       tells them to install the agent          WRONG STEP
+3 portal opens       Clawdmeter tab carries the pair command  works (0.3.0)
 4 WiFi tab           scan, tap, type, save                    works
-5 save + reboot      toast, then the hotspot vanishes         DROPS THE USER
-6 device rejoins     address on screen for 3500 ms, then gone CLIFF
-7 install agent      needs a laptop and a binary that exists  BLOCKED (milestone 7)
+5 save + reboot      toast, then the hotspot vanishes         SURVIVABLE (see below)
+6 device rejoins     ALMOST DONE screen, does not expire      works (0.3.0)
+7 install sender     /clawd:setup, one command, no restart    works (0.5.0)
 ```
+
+**What closed stage 6, and why 5 stopped mattering.** The commissioning screen
+now holds the whole remaining step and never expires: `ALMOST DONE`, then
+`/clawd:setup a1b2` as the literal thing to type, then the device's own
+`<host>.local` and IP. So the phone losing the portal at the reboot is no longer
+a cliff — everything it would have told the recipient is on the glass, and stays
+there until the first payload lands.
+
+**Stage 5 is still worth improving, and is now the only stage that is.** Keeping
+the AP up while the station associates (ESP8266 supports `WIFI_AP_STA`) would let
+the portal show a real success page with the new address and the pairing command,
+instead of the connection dying under the user. That is polish rather than
+capability: it costs a change in `Net.cpp`, `handlePostConfig` and the web UI, and
+buys a smoother thirty seconds. It is the next thing to do here, not a blocker.
+
+**Stage 7 was the blocked one and is now the shortest.** `/clawd:setup` writes one
+config file and installs one background agent — no Claude Code restart, nothing in
+`settings.json`, no binary to fetch from a release that does not exist. See
+`plugin/README.md`.
 
 Five changes close 3, 5 and 6. They are ordered by dependency: item 0 is
 groundwork the rest assume.

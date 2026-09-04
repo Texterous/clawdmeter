@@ -6,15 +6,29 @@
     (no args) / -Prefix   list every unit on a /24, as "<ip> <host>" lines.
                           Used by /clawd:setup to pick a unit.
     -Resolve <host>       print the current IP of ONE named unit, or nothing.
-                          Used by clawd-report when the stored address stops
+                          Used by the agent when the stored address stops
                           answering, which is what a DHCP renewal looks like from
                           here. Without this a paired unit went silent for good
                           and the only cure was re-running setup by hand.
+    -Wide                 sweep the enclosing /20 (16 x /24, 4064 addresses)
+                          instead of one /24. Needed on the networks this device
+                          actually lives on: measured 2026-09-04, the laptop was
+                          on 10.94.13.251 and the unit on 10.94.14.114 — three
+                          /24s apart on ONE SSID, where a /24 sweep can never
+                          succeed. Costs about 25 s, so it is an escalation and
+                          not the default.
+
+  TWO PASSES over each /24, always. A single pass misses a unit that is present
+  and answering: reproduced 2026-08-26 and again 2026-08-28, the second time at
+  -60 dBm with the device answering a direct curl throughout, so it is not a
+  signal-strength story — it is the async BeginConnect settle window being too
+  tight to be reliable once. Re-running found it in 2.8 s both times. Two passes
+  inside the finder is that re-run, without asking a recipient to know to do it.
 
   Windows PowerShell 5.1: async TCP connects in batches of 64 keep a full /24
   sweep near two seconds without needing PS 7's -Parallel.
 #>
-param([string]$Prefix, [string]$Resolve)
+param([string]$Prefix, [string]$Resolve, [switch]$Wide)
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference    = 'SilentlyContinue'
@@ -34,13 +48,32 @@ function Get-LocalPrefix {
   return $null
 }
 
-# Every Clawdmeter on a /24, as "<ip> <host>". Async TCP connects in batches of
-# 64 keep a full sweep near two seconds without needing PS 7's -Parallel.
-function Get-Units {
-  param([string]$NetPrefix)
+# The /24s to sweep: just ours, or the whole /20 around it under -Wide.
+#
+# A /20 because that is what this SSID hands out (10.94.0.0-10.94.15.255) and
+# because it is the largest sweep that still finishes inside half a minute. Wider
+# than that is a different tool: for a /16, ask the recipient to read the IP off
+# the screen, which the device prints for exactly this reason.
+function Get-Prefixes {
+  param([string]$NetPrefix, [bool]$Widen)
   if (-not $NetPrefix) { $NetPrefix = Get-LocalPrefix }
   if (-not $NetPrefix) { return @() }
+  if (-not $Widen) { return @($NetPrefix) }
+  $o = $NetPrefix -split '\.'
+  if ($o.Count -ne 3) { return @($NetPrefix) }
+  $third = [int]$o[2]
+  $start = $third - ($third % 16)          # the /20 this /24 sits in
+  $out = @()
+  for ($i = $start; $i -lt $start + 16; $i++) { $out += "$($o[0]).$($o[1]).$i" }
+  return $out
+}
+
+# Every Clawdmeter on the given /24s, as "<ip> <host>". Async TCP connects in
+# batches of 64 keep a /24 near two seconds without needing PS 7's -Parallel.
+function Get-UnitsPass {
+  param([string[]]$Prefixes)
   $found = @()
+  foreach ($NetPrefix in $Prefixes) {
   for ($base = 1; $base -le 254; $base += 64) {
     $pending = @()
     for ($i = $base; ($i -lt $base + 64) -and ($i -le 254); $i++) {
@@ -63,7 +96,20 @@ function Get-Units {
       }
     }
   }
+  }
   return $found
+}
+
+# Two passes, and stop early when the first one already answered. The second pass
+# is the whole reliability fix — see the header — and it costs nothing on the
+# common path because a successful first pass returns immediately.
+function Get-Units {
+  param([string]$NetPrefix, [bool]$Widen = $false)
+  $prefixes = Get-Prefixes -NetPrefix $NetPrefix -Widen $Widen
+  if (-not $prefixes.Count) { return @() }
+  $hit = @(Get-UnitsPass -Prefixes $prefixes)
+  if ($hit.Count) { return $hit }
+  return @(Get-UnitsPass -Prefixes $prefixes)
 }
 
 # One named unit's current IP.
@@ -97,9 +143,9 @@ function Resolve-Dns {
 }
 
 function Resolve-Unit {
-  param([string]$UnitHost)
+  param([string]$UnitHost, [bool]$Widen = $false)
   if (-not $UnitHost) { return $null }
-  foreach ($u in (Get-Units)) { if ($u.Host -eq $UnitHost) { return $u.Ip } }
+  foreach ($u in (Get-Units -Widen $Widen)) { if ($u.Host -eq $UnitHost) { return $u.Ip } }
   $mdns = Resolve-Dns "$UnitHost.local"
   if ($mdns) {
     try {
@@ -111,8 +157,10 @@ function Resolve-Unit {
 }
 
 if ($Resolve) {
-  $ip = Resolve-Unit -UnitHost $Resolve
+  $ip = Resolve-Unit -UnitHost $Resolve -Widen $Wide.IsPresent
   if ($ip) { Write-Output $ip }
   exit 0
 }
-foreach ($u in (Get-Units -NetPrefix $Prefix)) { Write-Output ("$($u.Ip) $($u.Host)") }
+foreach ($u in (Get-Units -NetPrefix $Prefix -Widen $Wide.IsPresent)) {
+  Write-Output ("$($u.Ip) $($u.Host)")
+}

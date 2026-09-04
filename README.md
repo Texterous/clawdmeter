@@ -26,7 +26,13 @@ claude plugin install clawd@clawdmeter
 ```
 
 Then `/clawd:setup` and the four characters on the device screen. No Python, no
-credential, no address to look up. There is no Clawdmeter agent binary; see
+credential, no address to look up, and no Claude Code restart.
+
+That installs one small background **agent** which keeps running with Claude Code
+closed. It is the difference between a display and a display that happens to be
+right: the earlier hook-only sender could not update a closed laptop, could not
+tell a rebooted device anything until the next tool call, and so greeted people
+with `waiting...` on every power cycle. There is no Clawdmeter agent binary; see
 [agent/](agent/) for why, and for why the Python daemon is no longer the
 recommended sender. There is one screen:
 
@@ -179,6 +185,26 @@ state), with `ns` the live session count when it exceeds the six rows sent. A
 payload without them still drives the meters — the board then reads "UPDATE YOUR
 SENDER", which is a different thing from "nothing is running".
 
+Four more optional keys let a sender tell the device things it cannot work out
+for itself:
+
+| Key | |
+|---|---|
+| `ts` | UTC epoch seconds when the payload was built |
+| `tzo` | the sender's offset from UTC, in minutes |
+| `hb` | the sender's heartbeat, in seconds |
+| `p` | the port the sender listens on for `GET /refresh` |
+
+`ts`/`tzo` are what put a real time on the "LAST SEEN 18:42" line: the device has
+no working NTP path and no time zone anyone set, and the machine talking to it
+knows the answer. `hb` sets the stale window — three missed beats plus grace,
+rather than a flat half hour — so silence means something specific. `p` is the
+return path: the device asks that port for a board when it boots, which is what
+makes a power cycle cost about a second instead of a whole heartbeat.
+
+Every one of them may be absent, and an older sender is never worse off for
+omitting them — the device falls back to the conservative default in each case.
+
 ## Repository layout
 
 ```
@@ -187,6 +213,7 @@ firmware/     PlatformIO project — four envs, one board
   tools/      code generators, run automatically before each build
 provision/    batch flashing and verification — giveaway and staffed runs
 plugin/       the clawd Claude Code plugin — the sender people install
+  bin/        clawd-agent (the always-on sender), clawd-find, clawd-report
 agent/        why there is no agent binary, and the /api/usage contract
 docs/         flashing, recovery, and the event runbook
 ```

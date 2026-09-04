@@ -80,6 +80,25 @@ else
   printf '%s|%s|%s' "$NAME" "$STATE" "$SINCE" > "$MINE"
 fi
 
+# ---- hand over to the agent, if one is running ------------------------------
+# The agent (clawd-agent.sh) owns the transport when it is installed: it holds a
+# heartbeat the device measures its stale window against, and it keeps running
+# with Claude Code closed. Two senders pushing the same board would fight over
+# the address in the config and halve the value of the heartbeat, so this hook
+# stops at writing its state file above — which is exactly the half the agent
+# cannot do for itself. A hook is TOLD that a permission prompt is up; nothing
+# outside this process can see it.
+if [ -f "$DIR/agent.pid" ]; then
+  APID=$(head -1 "$DIR/agent.pid" 2>/dev/null || echo)
+  if [ -n "$APID" ] && kill -0 "$APID" 2>/dev/null; then
+    # Name-checked: pids are recycled, and "some process has this pid" is not
+    # "the agent is running".
+    case "$(ps -p "$APID" -o comm= 2>/dev/null)" in
+      *sh*) exit 0 ;;
+    esac
+  fi
+fi
+
 # ---- rebuild the board from every session's line ---------------------------
 ROWS=""
 LIVE=0
